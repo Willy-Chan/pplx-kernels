@@ -26,6 +26,7 @@ import nvshmem.core as nvshmem
 import numpy as np
 import os
 import torch.distributed as dist
+from nvshmem.core import Teams
 
 def test_nvshmem_1_gpu() -> None:
     # """
@@ -181,6 +182,7 @@ def _worker_test_all_to_all(pgi: ProcessGroupInfo) -> None:
     # Set the device for custom CUDA code (cuda.core) (ensures NVSHMEM operations target the right GPU)
     dev = Device(local_rank)
     dev.set_current()
+    stream = dev.create_stream()
 
     # Set up torch.distributed (dist) backend
     # TODO: what's the correct uid-bootstrap backend?
@@ -195,37 +197,43 @@ def _worker_test_all_to_all(pgi: ProcessGroupInfo) -> None:
     rank_id = dist.get_rank()
 
     # Create a unique NVSHMEM UID on rank 0, empty UID on others
-    uniqueid = nvshmem.get_unique_id(empty=True) if rank_id != 0 else nvshmem.get_unique_id()
-    uniqueid_tensor = torch.from_numpy(uniqueid._data.view(np.int8)).to(device)
+    uniqueid = nvshmem.get_unique_id(empty=True)
+    if rank_id == 0:
+        uniqueid = nvshmem.get_unique_id()
+        broadcast_objects = [uniqueid]
+    else:
+        broadcast_objects = [None]
 
     # Broadcast the UID from rank 0 to all other ranks
-    dist.broadcast(uniqueid_tensor, src=0)
+    dist.broadcast_object_list(broadcast_objects, src=0)
     dist.barrier()
 
-    # Ensure all ranks have the correct UID data
-    if rank_id != 0:
-        uniqueid._data.view(np.int8)[:] = uniqueid_tensor.cpu().numpy()
-
-    assert rank_id == pgi.rank
-    assert num_ranks == pgi.world_size
-
     # Initialize NVSHMEM with the broadcasted UID
-    nvshmem.init(device=dev, uid=uniqueid, rank=rank_id, nranks=num_ranks, initializer_method="uid")
-    
+    nvshmem.init(device=dev, uid=broadcast_objects[0], rank=rank_id, nranks=num_ranks, initializer_method="uid")
+
     # all-to-all test
-    # try:
-    #     t_in = nvshmem.memory.buffer()
-    # finally:
-    #     del t_in
-    #     del t_out
-    #     nvshmem.finalize()
-    print(f"nvshmem.my_pe() = {nvshmem.my_pe()}, nvshmem.n_pes() = {nvshmem.n_pes()}")
+    try:
+        # Allocate a PyTorch tensor backed by NVSHMEM symmetric memory
+        t_in = nvshmem.interop.torch.tensor( (pgi.world_size,), dtype=torch.int32 )
+        t_in.fill_(pgi.rank)
+        t_out = nvshmem.interop.torch.tensor( (pgi.world_size,), dtype=torch.int32 )
 
-    nvshmem.finalize()
-    dist.destroy_process_group()
+        # perform the all-to-all operation with TEAM_WORLD and the specified stream
+        team = Teams.TEAM_WORLD
+        nvshmem.collective.alltoall(team, t_out, t_in, stream=stream)
+        
+        nvshmem.collective.barrier(team, stream=stream)
+        torch.cuda.synchronize()
 
+        assert t_out.tolist() == list(range(pgi.world_size))
 
+    finally:
+        nvshmem.interop.torch.free_tensor(t_in)
+        nvshmem.interop.torch.free_tensor(t_out)
+        nvshmem.finalize()
+        dist.destroy_process_group()
 
+    
 
 
 @pytest.mark.skipif(torch.cuda.device_count() < 4, reason="Requires at least 4 GPUs")
