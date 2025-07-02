@@ -86,8 +86,7 @@ def _worker_test_nvshmem_4_gpu(pgi: ProcessGroupInfo) -> None:
     dev = Device(local_rank)
     dev.set_current()
 
-    # Set up torch.distributed (dist) backend
-    # TODO: what's the correct uid-bootstrap backend?
+    # Set up torch.distributed (dist) backend - always use cuda:nccl
     dist.init_process_group(
         backend="cpu:gloo,cuda:nccl",
         rank=local_rank,
@@ -99,19 +98,19 @@ def _worker_test_nvshmem_4_gpu(pgi: ProcessGroupInfo) -> None:
     rank_id = dist.get_rank()
 
     # Create a unique NVSHMEM UID on rank 0, empty UID on others
-    uniqueid = nvshmem.get_unique_id(empty=True) if rank_id != 0 else nvshmem.get_unique_id()
-    uniqueid_tensor = torch.from_numpy(uniqueid._data.view(np.int8)).to(device)
+    uniqueid = nvshmem.get_unique_id(empty=True)
+    if rank_id == 0:
+        uniqueid = nvshmem.get_unique_id()
+        broadcast_objects = [uniqueid]
+    else:
+        broadcast_objects = [None]
 
     # Broadcast the UID from rank 0 to all other ranks
-    dist.broadcast(uniqueid_tensor, src=0)
+    dist.broadcast_object_list(broadcast_objects, src=0)
     dist.barrier()
 
-    # Ensure all ranks have the correct UID data
-    if rank_id != 0:
-        uniqueid._data.view(np.int8)[:] = uniqueid_tensor.cpu().numpy()
-
     # Initialize NVSHMEM with the broadcasted UID
-    nvshmem.init(device=dev, uid=uniqueid, rank=rank_id, nranks=num_ranks, initializer_method="uid")
+    nvshmem.init(device=dev, uid=broadcast_objects[0], rank=rank_id, nranks=num_ranks, initializer_method="uid")
 
     # Sanity checks
     assert nvshmem.my_pe() == pgi.rank
@@ -207,11 +206,20 @@ def _worker_test_all_to_all(pgi: ProcessGroupInfo) -> None:
     if rank_id != 0:
         uniqueid._data.view(np.int8)[:] = uniqueid_tensor.cpu().numpy()
 
+    assert rank_id == pgi.rank
+    assert num_ranks == pgi.world_size
+
     # Initialize NVSHMEM with the broadcasted UID
     nvshmem.init(device=dev, uid=uniqueid, rank=rank_id, nranks=num_ranks, initializer_method="uid")
-
-    print(f"nvshmem.my_pe() = {nvshmem.my_pe()}")
-    print(f"nvshmem.n_pes() = {nvshmem.n_pes()}")
+    
+    # all-to-all test
+    # try:
+    #     t_in = nvshmem.memory.buffer()
+    # finally:
+    #     del t_in
+    #     del t_out
+    #     nvshmem.finalize()
+    print(f"nvshmem.my_pe() = {nvshmem.my_pe()}, nvshmem.n_pes() = {nvshmem.n_pes()}")
 
     nvshmem.finalize()
     dist.destroy_process_group()
