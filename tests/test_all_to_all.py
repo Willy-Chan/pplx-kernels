@@ -303,6 +303,7 @@ def _worker_test_all_to_all(
     internode: bool,
     use_compile: bool = False,
 ) -> None:
+    ############################  OLD  ############################
     # uid = nvshmem_get_unique_id() if pgi.rank == 0 else nvshmem_alloc_empty_unique_id()
     # torch.distributed.broadcast(uid, src=0)
     # nvshmem_init(uid, pgi.rank, pgi.world_size)
@@ -313,71 +314,62 @@ def _worker_test_all_to_all(
     # )
     # _do_test_all_to_all(pgi, dp_size, moe_config, internode, use_compile)
     # nvshmem_finalize()
+    ###############################################################
 
 
 
-    # TODO: For clarification, we are JUST replacing the nvshmem python calls they have, NOT the custom ata.dispatch() and ata.combine() high-performance
-    # kernels that they have made.
+    # # TODO: For clarification, we are JUST replacing the nvshmem python calls they have, NOT the custom ata.dispatch() and ata.combine() high-performance kernels that they have made. Need to replace nvshmem_malloc!
+    # # First, we uid-bootstrap nvshmem with torchrun
+    # # PGI given parameters that specify the communication group
+    # local_rank = int(os.environ['LOCAL_RANK'])
+    # world_size = int(os.environ['WORLD_SIZE'])
 
-    # TODO: WILLY THIS IS WHAT TO DO:
-    # 1) Spend some time learning the MoE kernel because it's cool
-    # 2) After ~2:30 PM, test this file, and then go into bench_all_to_all and start replacing that python stuff. YOU'RE ONLY LOOKING FOR THOSE PYTHON CALLS
-    #    NOT REIMPLMENTING THEIR HIGH PERFORMANCE DISPATCH() AND COMBINE() KERNELS!!!
+    # # Set the device for PyTorch (ensures torch operations target the right GPU)
+    # torch.cuda.set_device(local_rank)
+    # device = torch.device("cuda", local_rank)
 
+    # # Set the device for custom CUDA code (cuda.core) (ensures NVSHMEM operations target the right GPU)
+    # dev = Device(local_rank)
+    # dev.set_current()
+    # stream = dev.create_stream()
 
-
-    # First, we uid-bootstrap nvshmem with torchrun
-    # PGI given parameters that specify the communication group
-    local_rank = int(os.environ['LOCAL_RANK'])
-    world_size = int(os.environ['WORLD_SIZE'])
-
-    # Set the device for PyTorch (ensures torch operations target the right GPU)
-    torch.cuda.set_device(local_rank)
-    device = torch.device("cuda", local_rank)
-
-    # Set the device for custom CUDA code (cuda.core) (ensures NVSHMEM operations target the right GPU)
-    dev = Device(local_rank)
-    dev.set_current()
-    stream = dev.create_stream()
-
-    # Set up torch.distributed (dist) backend
-    # TODO: what's the correct uid-bootstrap backend?
-    dist.init_process_group(
-        backend="cpu:gloo,cuda:nccl",
-        rank=local_rank,
-        world_size=world_size,
-        device_id=device
-    )
+    # # Set up torch.distributed (dist) backend
+    # dist.init_process_group(
+    #     backend="cpu:gloo,cuda:nccl",
+    #     rank=local_rank,
+    #     world_size=world_size,
+    #     device_id=device
+    # )
     
-    num_ranks = dist.get_world_size()
-    rank_id = dist.get_rank()
+    # num_ranks = dist.get_world_size()
+    # rank_id = dist.get_rank()
 
-    # Create a unique NVSHMEM UID on rank 0, empty UID on others
-    uniqueid = nvshmem.get_unique_id(empty=True)
-    if rank_id == 0:
-        uniqueid = nvshmem.get_unique_id()
-        broadcast_objects = [uniqueid]
-    else:
-        broadcast_objects = [None]
+    # # Create a unique NVSHMEM UID on rank 0, empty UID on others
+    # uniqueid = nvshmem.get_unique_id(empty=True)
+    # if rank_id == 0:
+    #     uniqueid = nvshmem.get_unique_id()
+    #     broadcast_objects = [uniqueid]
+    # else:
+    #     broadcast_objects = [None]
 
-    # Broadcast the UID from rank 0 to all other ranks
-    dist.broadcast_object_list(broadcast_objects, src=0)
-    dist.barrier()
+    # # Broadcast the UID from rank 0 to all other ranks
+    # dist.broadcast_object_list(broadcast_objects, src=0)
+    # dist.barrier()
 
-    # Initialize NVSHMEM with the broadcasted UID
-    nvshmem.init(device=dev, uid=broadcast_objects[0], rank=rank_id, nranks=num_ranks, initializer_method="uid")
+    # # Initialize NVSHMEM with the broadcasted UID
+    # nvshmem.init(device=dev, uid=broadcast_objects[0], rank=rank_id, nranks=num_ranks, initializer_method="uid")
 
-    moe_config = dataclasses.replace(
-        moe_config,
-        in_dtype=getattr(torch, in_dtype),
-        out_dtype=getattr(torch, out_dtype),
-    )
+    # moe_config = dataclasses.replace(
+    #     moe_config,
+    #     in_dtype=getattr(torch, in_dtype),
+    #     out_dtype=getattr(torch, out_dtype),
+    # )
 
-    # each PE will run this _do_test_all_to_all method simulating a MoE model.
-    _do_test_all_to_all(pgi, dp_size, moe_config, internode, use_compile, stream)
+    # # each PE will run this _do_test_all_to_all method simulating a MoE model.
+    # _do_test_all_to_all(pgi, dp_size, moe_config, internode, stream)
 
-    nvshmem.finalize()
-    dist.destroy_process_group()
+    # nvshmem.finalize()
+    # dist.destroy_process_group()
 
 
 @pytest.mark.skipif(torch.cuda.device_count() < 4, reason="Requires at least 4 GPUs")
@@ -392,8 +384,10 @@ def _worker_test_all_to_all(
 def test_all_to_all_4_gpu(
     in_dtype: str, out_dtype: str, internode: bool, use_compile: bool
 ) -> None:
-    world_size = 4
-    dp_size = 2
+    ############################  OLD  ############################
+    ### pytest -svx --tb=short tests tests/test_all_to_all.py::test_all_to_all_4_gpu
+    # world_size = 4
+    # dp_size = 2
     # parallel_launch(
     #     world_size,
     #     _worker_test_all_to_all,
@@ -404,6 +398,9 @@ def test_all_to_all_4_gpu(
     #     internode,
     #     use_compile,
     # )
+    ###############################################################
+
+    # torchrun --nproc-per-node 4 /lustre/fs1/portfolios/coreai/projects/coreai_libraries_nvshmem/wilchan/pplx/bin/pytest -svx --tb=short tests tests/test_all_to_all.py::test_all_to_all_4_gpu
 
     if "LOCAL_RANK" not in os.environ or "WORLD_SIZE" not in os.environ:
         pytest.skip("Must be run with torchrun")
