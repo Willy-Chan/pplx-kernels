@@ -74,7 +74,6 @@ def _worker_test_nvshmem_4_gpu(pgi: ProcessGroupInfo) -> None:
     # """
     
     # [UID bootstrap with torchrun] torchrun --nproc-per-node 4 /lustre/fs1/portfolios/coreai/projects/coreai_libraries_nvshmem/wilchan/pplx/bin/pytest -svx --tb=short tests tests/test_nvshmem.py::test_nvshmem_4_gpu
-    
     # PGI given parameters that specify the communication group
     local_rank = int(os.environ['LOCAL_RANK'])
     world_size = int(os.environ['WORLD_SIZE'])
@@ -221,7 +220,7 @@ def _worker_test_all_to_all(pgi: ProcessGroupInfo) -> None:
         # perform the all-to-all operation with TEAM_WORLD and the specified stream
         team = Teams.TEAM_WORLD
         nvshmem.collective.alltoall(team, t_out, t_in, stream=stream)
-        
+
         nvshmem.collective.barrier(team, stream=stream)
         torch.cuda.synchronize()
 
@@ -259,6 +258,7 @@ def test_all_to_all() -> None:
     _worker_test_all_to_all(pgi)
 
 
+# TODO: need to make the all-to-all work for multinode environments, investigate parallel_launch_from_env() more.
 @require_multi_node
 def test_all_to_all_multi_node() -> None:
     parallel_launch_from_env(_worker_test_all_to_all)
