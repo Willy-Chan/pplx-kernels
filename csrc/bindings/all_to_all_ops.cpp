@@ -61,6 +61,15 @@ fptr_t create_internode(
     int64_t hiddenDim,
     int64_t hiddenDimBytes,
     int64_t hiddenDimScaleBytes
+
+    // at::Tensor numTokensBuffer,
+    // at::Tensor numDispatchRecvBuffer,
+    // at::Tensor combineSignalBuffer,
+    // at::Tensor combineSyncBuffer,
+    // at::Tensor xDispatchIn,
+    // at::Tensor xDispatchOut,
+    // at::Tensor xCombineIn,
+    // at::Tensor xCombineOut
 ) {
   auto *ptr = new AllToAllInterNode(
       maxNumTokens,
@@ -72,6 +81,15 @@ fptr_t create_internode(
       hiddenDim,
       hiddenDimBytes,
       hiddenDimScaleBytes
+
+      // numTokensBuffer.data_ptr<uint64_t>(),
+      // numDispatchRecvBuffer.data_ptr<uint64_t>(),
+      // combineSignalBuffer.data_ptr<uint64_t>(),
+      // combineSyncBuffer.data_ptr<uint64_t>(),
+      // xDispatchIn.data_ptr<std::byte>(),
+      // xDispatchOut.data_ptr<std::byte>(),
+      // xCombineIn.data_ptr<std::byte>(),
+      // xCombineOut.data_ptr<std::byte>()
   );
   return (fptr_t)ptr;
 }

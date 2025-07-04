@@ -149,29 +149,45 @@ class AllToAll:
         numDPGroups = world_size // dp_size
 
         # TODO: should really be uint64.....        NOW PASS IN THE POINTERS USING tensor.data_ptr()
-        # TODO: UINT64 IS UNSUPPORTED???
 
-        numTokensBuffer = nvshmem.interop.torch.tensor((numLocalExperts * numDPGroups,), dtype=torch.int64)
-        numDispatchRecvBuffer = nvshmem.interop.torch.tensor((numLocalExperts * numDPGroups,), dtype=torch.int64)
 
-        combineSignalBuffer = nvshmem.interop.torch.tensor((max_num_tokens,), dtype=torch.int64)
-        combineSyncBuffer = nvshmem.interop.torch.tensor((world_size,), dtype=torch.int64)
+        # TODO: just replace it with torch.buffer....
+        numTokensBuffer = nvshmem.memory.buffer(numLocalExperts * numDPGroups * 8)    # really should be uint64 which is just 8 bytes
+        numDispatchRecvBuffer = nvshmem.memory.buffer(numLocalExperts * numDPGroups * 8)
+        combineSignalBuffer = nvshmem.memory.buffer(max_num_tokens * 8)
+        combineSyncBuffer = nvshmem.memory.buffer(world_size * 8)
+
+
+        numTokensBuffer = nvshmem.memory.buffer(numLocalExperts * numDPGroups * 8)    # really should be uint64 but we do *2 for the uint32 since uint64 not supported
+        numDispatchRecvBuffer = nvshmem.memory.buffer(numLocalExperts * numDPGroups * 8)
+        combineSignalBuffer = nvshmem.memory.buffer(max_num_tokens * 8)
+        combineSyncBuffer = nvshmem.memory.buffer(world_size * 8)
 
         # COMMAND TO REINSTALL PPLX KERNELS AND RUN THE TESTS AGAIN
         # alias ben='pip uninstall pplx-kernels && TORCH_CUDA_ARCH_LIST=9.0a+PTX python3 setup.py bdist_wheel && pip install dist/*.whl && torchrun --nproc-per-node 4 /lustre/fs1/portfolios/coreai/projects/coreai_libraries_nvshmem/wilchan/pplx/bin/pytest -svx --tb=short tests tests/test_all_to_all.py::test_all_to_all_4_gpu'
         # pip uninstall pplx-kernels && TORCH_CUDA_ARCH_LIST=9.0a+PTX python3 setup.py bdist_wheel && pip install dist/*.whl && torchrun --nproc-per-node 4 /lustre/fs1/portfolios/coreai/projects/coreai_libraries_nvshmem/wilchan/pplx/bin/pytest -svx --tb=short tests tests/test_all_to_all.py::test_all_to_all_4_gpu
         
-
         align = 16
         per_token_bytes = (((hidden_dim_bytes + hidden_dim_scale_bytes + 4) + align - 1) // align) * align  # + 4 for uint32_t # round_up<size_t>(hiddenDimBytes + hiddenDimScaleBytes + sizeof(uint32_t), 16);
         max_batch_tokens = numLocalExperts * numDPGroups * max_num_tokens
 
 
-        xDispatchIn = nvshmem.interop.torch.tensor((max_num_tokens * per_token_bytes,), dtype=torch.uint8)
-        xDispatchOut = nvshmem.interop.torch.tensor((max_batch_tokens * per_token_bytes,), dtype=torch.uint8)
+        xDispatchIn = nvshmem.memory.buffer(max_num_tokens * per_token_bytes * 1)   # uint8 right???
+        xDispatchOut = nvshmem.memory.buffer(max_batch_tokens * per_token_bytes * 1)
 
-        xCombineIn = nvshmem.interop.torch.tensor((max_batch_tokens * hidden_dim,), dtype=torch.float32)
-        xCombineOut = nvshmem.interop.torch.tensor((max_num_tokens * num_experts * hidden_dim,), dtype=torch.float32)
+        xCombineIn = nvshmem.memory.buffer(max_batch_tokens * hidden_dim * 4)   # should be float32 right??
+        xCombineOut = nvshmem.memory.buffer(max_num_tokens * num_experts * hidden_dim * 4)
+
+
+        # numTokensBuffer[:] = 0
+        # numDispatchRecvBuffer[:] = 0
+        # combineSignalBuffer[:] = 0
+        # combineSyncBuffer[:] = 0
+        # xDispatchIn[:] = 0
+        # xDispatchOut[:] = 0
+        # xCombineIn[:] = 0
+        # xCombineOut[:] = 0
+
 
         print("allocated nvshmem core tensors!")
 
@@ -185,6 +201,15 @@ class AllToAll:
             hidden_dim,
             hidden_dim_bytes,
             hidden_dim_scale_bytes,
+
+            # numTokensBuffer.data_ptr,
+            # numDispatchRecvBuffer,
+            # combineSignalBuffer,
+            # combineSyncBuffer,
+            # xDispatchIn,
+            # xDispatchOut,
+            # xCombineIn,
+            # xCombineOut,
         )
         assert ptr != 0
 

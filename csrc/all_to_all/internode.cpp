@@ -19,6 +19,15 @@ AllToAllInterNode::AllToAllInterNode(
     size_t hiddenDim,
     size_t hiddenDimBytes,
     size_t hiddenDimScaleBytes
+
+    // uint64_t * numTokensBuffer1,
+    // uint64_t * numDispatchRecvBuffe1,
+    // uint64_t * combineSignalBuffer1,
+    // uint64_t * combineSyncBuffer1,
+    // std::byte * xDispatchIn1,
+    // std::byte * xDispatchOut1,
+    // std::byte * xCombineIn1,
+    // std::byte * xCombineOut1
 )
     : AllToAll(
           maxNumTokens,
