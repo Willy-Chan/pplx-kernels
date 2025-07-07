@@ -24,12 +24,13 @@ public:
       unsigned dpSize,
       size_t hiddenDim,
       size_t hiddenDimBytes,
-      size_t hiddenDimScaleBytes
+      size_t hiddenDimScaleBytes,
 
-      // uint64_t * numTokensBuffer1,
-      // uint64_t * numDispatchRecvBuffe1,
-      // uint64_t * combineSignalBuffer1,
-      // uint64_t * combineSyncBuffer1,
+      uint64_t* extNumTokensBuffer,
+      uint64_t* extNumDispatchRecvBuffer,
+      uint64_t* extCombineSignalBuffer1,
+      uint64_t* extCombineSyncBuffer1
+      // PART 6
       // std::byte * xDispatchIn1,
       // std::byte * xDispatchOut1,
       // std::byte * xCombineIn1,

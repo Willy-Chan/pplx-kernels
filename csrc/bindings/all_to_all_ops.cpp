@@ -60,17 +60,21 @@ fptr_t create_internode(
     int64_t dpSize,
     int64_t hiddenDim,
     int64_t hiddenDimBytes,
-    int64_t hiddenDimScaleBytes
+    int64_t hiddenDimScaleBytes,
 
-    // at::Tensor numTokensBuffer,
-    // at::Tensor numDispatchRecvBuffer,
-    // at::Tensor combineSignalBuffer,
-    // at::Tensor combineSyncBuffer,
+    at::Tensor numTokensBuffer,
+    at::Tensor numDispatchRecvBuffer,
+    at::Tensor combineSignalBuffer,
+    at::Tensor combineSyncBuffer      // PART 3
     // at::Tensor xDispatchIn,
     // at::Tensor xDispatchOut,
     // at::Tensor xCombineIn,
     // at::Tensor xCombineOut
 ) {
+  // Basic validation
+  TORCH_CHECK(numTokensBuffer.is_cuda(), "numTokensBuffer must be a CUDA tensor");
+  TORCH_CHECK(numTokensBuffer.scalar_type() == at::kLong, "numTokensBuffer must be int64");
+
   auto *ptr = new AllToAllInterNode(
       maxNumTokens,
       numExperts,
@@ -80,10 +84,14 @@ fptr_t create_internode(
       dpSize,
       hiddenDim,
       hiddenDimBytes,
-      hiddenDimScaleBytes
+      hiddenDimScaleBytes,
 
-      // numTokensBuffer.data_ptr<uint64_t>(),
-      // numDispatchRecvBuffer.data_ptr<uint64_t>(),
+      // PART 4
+      reinterpret_cast<uint64_t*>(numTokensBuffer.data_ptr<int64_t>()),    // TODO: REINTERPRET-CASTING int64 TO uint64 IS THIS OK???
+      reinterpret_cast<uint64_t*>(numDispatchRecvBuffer.data_ptr<int64_t>()),
+      reinterpret_cast<uint64_t*>(combineSignalBuffer.data_ptr<int64_t>()),
+      reinterpret_cast<uint64_t*>(combineSyncBuffer.data_ptr<int64_t>())
+
       // combineSignalBuffer.data_ptr<uint64_t>(),
       // combineSyncBuffer.data_ptr<uint64_t>(),
       // xDispatchIn.data_ptr<std::byte>(),
@@ -347,7 +355,21 @@ namespace pplx {
 void register_all_to_all_ops(torch::Library &m) {
   m.def("all_to_all_destroy", &destroy);
 
-  m.def("all_to_all_internode_create", &create_internode);
+  m.def("all_to_all_internode_create("
+        "  int max_num_tokens,"
+        "  int num_experts,"
+        "  int experts_per_token,"
+        "  int rank,"
+        "  int world_size,"
+        "  int dp_size,"
+        "  int hidden_dim,"
+        "  int hidden_dim_bytes,"
+        "  int hidden_dim_scale_bytes,"
+        "  Tensor numTokensBuffer,"     // TODO: WHAT SHOULD THIS TYPE DECLARATION BE?
+        "  Tensor numDispatchRecvBuffer,"        // PART 4
+        "  Tensor combineSignalBuffer,"
+        "  Tensor combineSyncBuffer"
+        ") -> int", &create_internode);
 
   m.def("all_to_all_internode_dispatch("
         "  int fptr,"
