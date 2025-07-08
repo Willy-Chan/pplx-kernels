@@ -355,13 +355,20 @@ def main() -> None:
     in_dtype = str(args.in_dtype)
     out_dtype = str(args.out_dtype)
 
-    if "MASTER_ADDR" in os.environ:
-        parallel_launch_from_env(_worker_bench_all_to_all, dp_size, in_dtype, out_dtype)
-    else:
-        world_size = torch.cuda.device_count()
-        parallel_launch(
-            world_size, _worker_bench_all_to_all, dp_size, in_dtype, out_dtype
-        )
+    # if "MASTER_ADDR" in os.environ:
+    #     parallel_launch_from_env(_worker_bench_all_to_all, dp_size, in_dtype, out_dtype)
+    # else:
+    #     world_size = torch.cuda.device_count()
+    #     parallel_launch(
+    #         world_size, _worker_bench_all_to_all, dp_size, in_dtype, out_dtype
+    #     )
+
+    if "LOCAL_RANK" not in os.environ or "WORLD_SIZE" not in os.environ:
+        pytest.skip("Must be run with torchrun")
+    
+    world_size = int(os.environ["WORLD_SIZE"])
+    local_rank = int(os.environ["LOCAL_RANK"])
+
 
 
 if __name__ == "__main__":

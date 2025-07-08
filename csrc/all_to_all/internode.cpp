@@ -116,27 +116,27 @@ AllToAllInterNode::AllToAllInterNode(
         // nvshmem_malloc calls would have allocated.  We do this once
         // on PE/rank 0 so logs are readable.
 
-        if (rank == 0) {
-            printf("===== Expected allocation sizes (bytes) =====\n");
-            printf("numTokensBuffer       : %zu\n", sizeof(uint64_t) * numLocalExperts * numDPGroups);
-            printf("numDispatchRecvBuffer : %zu\n", sizeof(uint64_t) * numLocalExperts * numDPGroups);
-            printf("combineSignalBuffer   : %zu\n", sizeof(uint64_t) * maxNumTokens);
-            printf("combineSyncBuffer     : %zu\n", sizeof(uint64_t) * worldSize);
-            printf("xDispatchIn           : %zu\n", maxNumTokens  * perTokenBytes);
-            printf("xDispatchOut          : %zu\n", maxBatchTokens * perTokenBytes);
-            printf("xCombineIn            : %zu\n", maxBatchTokens * hiddenDim * sizeof(float));
-            printf("xCombineOut           : %zu\n", maxNumTokens  * numExperts * hiddenDim * sizeof(float));
-            printf("===========================================\n");
+        // if (rank == 0) {
+        //     printf("===== Expected allocation sizes (bytes) =====\n");
+        //     printf("numTokensBuffer       : %zu\n", sizeof(uint64_t) * numLocalExperts * numDPGroups);
+        //     printf("numDispatchRecvBuffer : %zu\n", sizeof(uint64_t) * numLocalExperts * numDPGroups);
+        //     printf("combineSignalBuffer   : %zu\n", sizeof(uint64_t) * maxNumTokens);
+        //     printf("combineSyncBuffer     : %zu\n", sizeof(uint64_t) * worldSize);
+        //     printf("xDispatchIn           : %zu\n", maxNumTokens  * perTokenBytes);
+        //     printf("xDispatchOut          : %zu\n", maxBatchTokens * perTokenBytes);
+        //     printf("xCombineIn            : %zu\n", maxBatchTokens * hiddenDim * sizeof(float));
+        //     printf("xCombineOut           : %zu\n", maxNumTokens  * numExperts * hiddenDim * sizeof(float));
+        //     printf("===========================================\n");
 
-            printf("numTokensBuffer       -> %p\n", numTokensBuffer      );
-            printf("numDispatchRecvBuffer -> %p\n", numDispatchRecvBuffer);
-            printf("combineSignalBuffer   -> %p\n", combineSignalBuffer  );
-            printf("combineSyncBuffer     -> %p\n", combineSyncBuffer    );
-            printf("xDispatchIn           -> %p\n", xDispatchIn          );
-            printf("xDispatchOut          -> %p\n", xDispatchOut         );
-            printf("xCombineIn            -> %p\n", xCombineIn           );
-            printf("xCombineOut           -> %p\n", xCombineOut  );        
-        }
+        //     printf("numTokensBuffer       -> %p\n", numTokensBuffer      );
+        //     printf("numDispatchRecvBuffer -> %p\n", numDispatchRecvBuffer);
+        //     printf("combineSignalBuffer   -> %p\n", combineSignalBuffer  );
+        //     printf("combineSyncBuffer     -> %p\n", combineSyncBuffer    );
+        //     printf("xDispatchIn           -> %p\n", xDispatchIn          );
+        //     printf("xDispatchOut          -> %p\n", xDispatchOut         );
+        //     printf("xCombineIn            -> %p\n", xCombineIn           );
+        //     printf("xCombineOut           -> %p\n", xCombineOut  );        
+        // }
     // ------------------------------------------------------------
 
 

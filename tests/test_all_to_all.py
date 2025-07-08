@@ -295,6 +295,7 @@ def _do_test_all_to_all(
     #         weight = float(rank_data.weights[i_token, i_expert].item())
     #         ref_y[i_token] += rank_data.x[i_token].to(device).to(y.dtype) * val * weight
     # torch.testing.assert_close(y[: rank_data.num_tokens], ref_y)
+    # print(f"y is {y[: rank_data.num_tokens]}, ref_y is {ref_y}")
 
 
 
@@ -335,6 +336,7 @@ def _worker_test_all_to_all(
     # Set the device for custom CUDA code (cuda.core) (ensures NVSHMEM operations target the right GPU)
     dev = Device(local_rank)
     dev.set_current()
+    global stream
     stream = dev.create_stream()
 
     # Set up torch.distributed (dist) backend
@@ -348,13 +350,10 @@ def _worker_test_all_to_all(
     num_ranks = dist.get_world_size()
     rank_id = dist.get_rank()
 
-    # -------------- TO DELETE --------------------
 
-    ### IT DOES WORK BUT WE'RE STILL USING THEIR BAD PYTHON BINDINGS **somewhere**
-    uid = nvshmem_get_unique_id() if pgi.rank == 0 else nvshmem_alloc_empty_unique_id()
-    torch.distributed.broadcast(uid, src=0)
-    nvshmem_init(uid, pgi.rank, pgi.world_size)
-    # -------------- TO DELETE --------------------
+
+
+    
 
 
     # Create a unique NVSHMEM UID on rank 0, empty UID on others
@@ -364,6 +363,8 @@ def _worker_test_all_to_all(
         broadcast_objects = [uniqueid]
     else:
         broadcast_objects = [None]
+
+    # print(f"rank_id IS {rank_id}, old rank is {pgi.rank}")
 
     # Broadcast the UID from rank 0 to all other ranks
     dist.broadcast_object_list(broadcast_objects, src=0)
@@ -377,6 +378,22 @@ def _worker_test_all_to_all(
         in_dtype=getattr(torch, in_dtype),
         out_dtype=getattr(torch, out_dtype),
     )
+
+
+
+    # -------------- TO DELETE --------------------
+    ## THIS DOES SOMETHING TO THE DEVICE BUFFERS...
+    # TODO: THINKING THAT WE ARE NOT BROADCASTING THE UNIQUE ID CORRECTLY HERE
+    uid = nvshmem_get_unique_id() if pgi.rank == 0 else nvshmem_alloc_empty_unique_id()
+    torch.distributed.broadcast(uid, src=0)
+
+    print(f"[UID RANK {pgi.rank}] has pgi.uid {uid} and uniqueid {uniqueid}")
+    nvshmem_init(uid, pgi.rank, pgi.world_size)
+    # -------------- TO DELETE --------------------
+
+
+
+
 
     # each PE will run this _do_test_all_to_all method simulating a MoE model.
     _do_test_all_to_all(pgi, dp_size, moe_config, internode, stream)
