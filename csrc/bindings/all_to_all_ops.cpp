@@ -65,15 +65,23 @@ fptr_t create_internode(
     at::Tensor numTokensBuffer,
     at::Tensor numDispatchRecvBuffer,
     at::Tensor combineSignalBuffer,
-    at::Tensor combineSyncBuffer      // PART 3
-    // at::Tensor xDispatchIn,
-    // at::Tensor xDispatchOut,
-    // at::Tensor xCombineIn,
-    // at::Tensor xCombineOut
+    at::Tensor combineSyncBuffer,      // PART 3
+    at::Tensor xDispatchIn,
+    at::Tensor xDispatchOut,
+    at::Tensor xCombineIn,
+    at::Tensor xCombineOut
 ) {
-  // Basic validation
-  TORCH_CHECK(numTokensBuffer.is_cuda(), "numTokensBuffer must be a CUDA tensor");
-  TORCH_CHECK(numTokensBuffer.scalar_type() == at::kLong, "numTokensBuffer must be int64");
+
+  // // TODO: PRINT THIS OUT!!!!!!!!!
+  // if rank == 0:
+  //   printf(f"[4py] numTokensBuffer has ptr {numTokensBuffer.data_ptr()}")
+  //   printf(f"[4py] numDispatchRecvBuffer numDispatchRecvBuffer.data_ptr()")
+  //   printf(f"[4py] combineSignalBuffer combineSignalBuffer.data_ptr()")
+  //   printf(f"[4py] combineSyncBuffer combineSyncBuffer.data_ptr()")
+  //   printf(f"[4py] xDispatchIn xDispatchIn.data_ptr()")
+  //   printf(f"[4py] xDispatchOut xDispatchOut.data_ptr()")
+  //   printf(f"[4py] xCombineIn xCombineIn.data_ptr()")
+  //   printf(f"[4py] xCombineOut xCombineOut.data_ptr()")
 
   auto *ptr = new AllToAllInterNode(
       maxNumTokens,
@@ -86,19 +94,19 @@ fptr_t create_internode(
       hiddenDimBytes,
       hiddenDimScaleBytes,
 
-      // PART 4
-      reinterpret_cast<uint64_t*>(numTokensBuffer.data_ptr<int64_t>()),    // TODO: REINTERPRET-CASTING int64 TO uint64 IS THIS OK???
-      reinterpret_cast<uint64_t*>(numDispatchRecvBuffer.data_ptr<int64_t>()),
-      reinterpret_cast<uint64_t*>(combineSignalBuffer.data_ptr<int64_t>()),
-      reinterpret_cast<uint64_t*>(combineSyncBuffer.data_ptr<int64_t>())
+      // uintptr_t
 
-      // combineSignalBuffer.data_ptr<uint64_t>(),
-      // combineSyncBuffer.data_ptr<uint64_t>(),
-      // xDispatchIn.data_ptr<std::byte>(),
-      // xDispatchOut.data_ptr<std::byte>(),
-      // xCombineIn.data_ptr<std::byte>(),
-      // xCombineOut.data_ptr<std::byte>()
+      // PART 4
+      reinterpret_cast<uint64_t*>(numTokensBuffer.data_ptr()),    // TODO: REINTERPRET-CASTING int64 TO uint64 IS THIS OK???
+      reinterpret_cast<uint64_t*>(numDispatchRecvBuffer.data_ptr()),
+      reinterpret_cast<uint64_t*>(combineSignalBuffer.data_ptr()),
+      reinterpret_cast<uint64_t*>(combineSyncBuffer.data_ptr()),
+      reinterpret_cast<std::byte*>(xDispatchIn.data_ptr()),
+      reinterpret_cast<std::byte*>(xDispatchOut.data_ptr()),
+      reinterpret_cast<std::byte*>(xCombineIn.data_ptr()),
+      reinterpret_cast<std::byte*>(xCombineOut.data_ptr())
   );
+
   return (fptr_t)ptr;
 }
 
@@ -368,7 +376,11 @@ void register_all_to_all_ops(torch::Library &m) {
         "  Tensor numTokensBuffer,"     // TODO: WHAT SHOULD THIS TYPE DECLARATION BE?
         "  Tensor numDispatchRecvBuffer,"        // PART 4
         "  Tensor combineSignalBuffer,"
-        "  Tensor combineSyncBuffer"
+        "  Tensor combineSyncBuffer,"
+        "  Tensor xDispatchIn,"
+        "  Tensor xDispatchOut,"
+        "  Tensor xCombineIn,"
+        "  Tensor xCombineOut"
         ") -> int", &create_internode);
 
   m.def("all_to_all_internode_dispatch("

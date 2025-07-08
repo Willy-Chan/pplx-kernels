@@ -29,12 +29,11 @@ public:
       uint64_t* extNumTokensBuffer,
       uint64_t* extNumDispatchRecvBuffer,
       uint64_t* extCombineSignalBuffer1,
-      uint64_t* extCombineSyncBuffer1
-      // PART 6
-      // std::byte * xDispatchIn1,
-      // std::byte * xDispatchOut1,
-      // std::byte * xCombineIn1,
-      // std::byte * xCombineOut1
+      uint64_t* extCombineSyncBuffer1,
+      std::byte* xDispatchIn,     // PART 6
+      std::byte* xDispatchOut,
+      std::byte* xCombineIn,
+      std::byte* xCombineOut
   );
 
   ~AllToAllInterNode();

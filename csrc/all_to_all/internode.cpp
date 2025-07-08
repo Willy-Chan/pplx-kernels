@@ -7,12 +7,6 @@
 #include "all_to_all/internode.h"
 #include "core/utils.h"
 
-
-
-
-// TODO: DELETE THESE IMPORTS LATER
-#include <vector>
-
 using namespace pplx;
 
 AllToAllInterNode::AllToAllInterNode(
@@ -27,12 +21,12 @@ AllToAllInterNode::AllToAllInterNode(
     size_t hiddenDimScaleBytes,
     uint64_t* extNumTokensBuffer,
     uint64_t* extNumDispatchRecvBuffer,         // PART 5
-    uint64_t * extCombineSignalBuffer,
-    uint64_t * extCombineSyncBuffer
-    // std::byte * xDispatchIn1,
-    // std::byte * xDispatchOut1,
-    // std::byte * xCombineIn1,
-    // std::byte * xCombineOut1
+    uint64_t* extCombineSignalBuffer,
+    uint64_t* extCombineSyncBuffer,
+    std::byte* extXDispatchIn,
+    std::byte* extXDispatchOut,
+    std::byte* extXCombineIn,
+    std::byte* extXCombineOut
 )
     : AllToAll(
           maxNumTokens,
@@ -46,80 +40,106 @@ AllToAllInterNode::AllToAllInterNode(
           hiddenDimScaleBytes
       ),
       maxBatchTokens(numLocalExperts * numDPGroups * maxNumTokens) {
-  // Buffers for token counts.
-  numTokensPerDP = mallocZeroBuffer<uint32_t>(numLocalExperts * numDPGroups);
 
-  if (extNumTokensBuffer) {
-    // TODO: delete after, validate that the pointer is a valid device pointer.
+    // Buffers for dispatch.
+    const size_t perTokenBytes =
+    round_up<size_t>(hiddenDimBytes + hiddenDimScaleBytes + sizeof(uint32_t), 16);
+
+    // Buffers for token counts.
+    numTokensPerDP = mallocZeroBuffer<uint32_t>(numLocalExperts * numDPGroups);
+
+    // numTokensBuffer = (uint64_t *)nvshmem_malloc(sizeof(uint64_t) * numLocalExperts * numDPGroups);
     cudaPointerAttributes attr;
     auto err = cudaPointerGetAttributes(&attr, extNumTokensBuffer);
     PPLX_ASSERT(extNumTokensBuffer != nullptr && err == cudaSuccess && (attr.type == cudaMemoryTypeDevice || attr.type == cudaMemoryTypeManaged),
-                "numTokensBuffer is not a valid device pointer");
-    printf("[AllToAllInterNode] numTokensBuffer is a valid device pointer at %p with memory type %d (0=Host, 1=Device, 2=Managed) and in device %d\n", extNumTokensBuffer, attr.type, attr.device);
-    
-    numTokensBuffer = extNumTokensBuffer;
-  } else {
-    numTokensBuffer = (uint64_t *)nvshmem_malloc(sizeof(uint64_t) * numLocalExperts * numDPGroups);
-    PPLX_ASSERT(numTokensBuffer != nullptr, "failed to allocate numTokensBuffer");
+                "numTokensBuffer is not a valid device pointer");    
+    numTokensBuffer = (uint64_t *)extNumTokensBuffer;
     cudaMemset(numTokensBuffer, 0, sizeof(uint64_t) * numLocalExperts * numDPGroups);
-  }
 
-  if (extNumDispatchRecvBuffer) {
-    cudaPointerAttributes attr;
-    auto err = cudaPointerGetAttributes(&attr, extNumDispatchRecvBuffer);
+    // numDispatchRecvBuffer = (uint64_t *)nvshmem_malloc(sizeof(uint64_t) * numLocalExperts * numDPGroups);
+    err = cudaPointerGetAttributes(&attr, extNumDispatchRecvBuffer);
     PPLX_ASSERT(extNumDispatchRecvBuffer != nullptr && err == cudaSuccess && (attr.type == cudaMemoryTypeDevice || attr.type == cudaMemoryTypeManaged),
                 "extNumDispatchRecvBuffer is not a valid device pointer");
-    printf("[AllToAllInterNode] extNumDispatchRecvBuffer is a valid device pointer at %p with memory type %d (0=Host, 1=Device, 2=Managed) and in device %d\n", extNumDispatchRecvBuffer, attr.type, attr.device);
-    
-    numDispatchRecvBuffer = extNumDispatchRecvBuffer;
-  } else {
-    numDispatchRecvBuffer = (uint64_t *)nvshmem_malloc(sizeof(uint64_t) * numLocalExperts * numDPGroups);
-    PPLX_ASSERT(numDispatchRecvBuffer != nullptr, "failed to allocate numDispatchRecvBuffer");
+    numDispatchRecvBuffer = (uint64_t *)extNumDispatchRecvBuffer;
     cudaMemset(numDispatchRecvBuffer, 0, sizeof(uint64_t) * numLocalExperts * numDPGroups);
-  }
 
-  if (extCombineSignalBuffer) {
-    cudaPointerAttributes attr;
-    auto err = cudaPointerGetAttributes(&attr, extCombineSignalBuffer);
+
+    // combineSignalBuffer = (uint64_t *)nvshmem_malloc(sizeof(uint64_t) * maxNumTokens);
+    err = cudaPointerGetAttributes(&attr, extCombineSignalBuffer);
     PPLX_ASSERT(extCombineSignalBuffer != nullptr && err == cudaSuccess && (attr.type == cudaMemoryTypeDevice || attr.type == cudaMemoryTypeManaged),
-                "extCombineSignalBuffer is not a valid device pointer");
-    printf("[AllToAllInterNode] extCombineSignalBuffer is a valid device pointer at %p with memory type %d (0=Host, 1=Device, 2=Managed) and in device %d\n", extCombineSignalBuffer, attr.type, attr.device);
-    
-    combineSignalBuffer = extCombineSignalBuffer;
-  } else {
-    combineSignalBuffer = (uint64_t *)nvshmem_malloc(sizeof(uint64_t) * maxNumTokens);
-    PPLX_ASSERT(combineSignalBuffer != nullptr, "failed to allocate combineSignalBuffer");
+                "extCombineSignalBuffer is not a valid device pointer");    
+    combineSignalBuffer = (uint64_t *)extCombineSignalBuffer;
     cudaMemset(combineSignalBuffer, 0, sizeof(uint64_t) * maxNumTokens);
-  }
   
-  if (extCombineSyncBuffer) {
-    cudaPointerAttributes attr;
-    auto err = cudaPointerGetAttributes(&attr, extCombineSyncBuffer);
+    // combineSyncBuffer = (uint64_t *)nvshmem_malloc(sizeof(uint64_t) * worldSize);
+    err = cudaPointerGetAttributes(&attr, extCombineSyncBuffer);
     PPLX_ASSERT(extCombineSyncBuffer != nullptr && err == cudaSuccess && (attr.type == cudaMemoryTypeDevice || attr.type == cudaMemoryTypeManaged),
-                "extCombineSyncBuffer is not a valid device pointer");
-    printf("[AllToAllInterNode] extCombineSyncBuffer is a valid device pointer at %p with memory type %d (0=Host, 1=Device, 2=Managed) and in device %d\n", extCombineSyncBuffer, attr.type, attr.device);
-    
-    combineSyncBuffer = extCombineSyncBuffer;
-  } else {
-    combineSyncBuffer = (uint64_t *)nvshmem_malloc(sizeof(uint64_t) * worldSize);
-    PPLX_ASSERT(combineSyncBuffer != nullptr, "failed to allocate combineSyncBuffer");
+                "extCombineSyncBuffer is not a valid device pointer");    
+    combineSyncBuffer = (uint64_t *)extCombineSyncBuffer;
     cudaMemset(combineSyncBuffer, 0, sizeof(uint64_t) * worldSize);
-  }
 
-  // Buffers for dispatch.
-  const size_t perTokenBytes =
-      round_up<size_t>(hiddenDimBytes + hiddenDimScaleBytes + sizeof(uint32_t), 16);
-  xDispatchIn = (std::byte *)nvshmem_malloc(maxNumTokens * perTokenBytes);
-  PPLX_ASSERT(xDispatchIn != nullptr, "failed to allocate xDispatchIn");
-  xDispatchOut = (std::byte *)nvshmem_malloc(maxBatchTokens * perTokenBytes);
-  PPLX_ASSERT(xDispatchOut != nullptr, "failed to allocate xDispatchOut");
+    err = cudaPointerGetAttributes(&attr, extXDispatchIn);
+    PPLX_ASSERT(extXDispatchIn != nullptr, "failed to allocate xDispatchIn");
+    PPLX_ASSERT(err == cudaSuccess && (attr.type == cudaMemoryTypeDevice || attr.type == cudaMemoryTypeManaged),
+                "extXDispatchIn is not a valid device pointer");
+    // printf("[AllToAllInterNode] extXDispatchIn allocated at %p (memType %d, device %d)\n", extXDispatchIn, attr.type, attr.device);
+    //   xDispatchIn = (std::byte *)nvshmem_malloc(maxNumTokens * perTokenBytes);
+    xDispatchIn = (std::byte *)extXDispatchIn;
 
-  // Buffers for combine. The allocations are a bit wider to accommodate all
-  // possible data types (primarily float for testing and bfloat16 for prod).
-  xCombineIn = (std::byte *)nvshmem_malloc(maxBatchTokens * hiddenDim * sizeof(float));
-  PPLX_ASSERT(xCombineIn != nullptr, "failed to allocate xCombineIn");
-  xCombineOut = (std::byte *)nvshmem_malloc(maxNumTokens * numExperts * hiddenDim * sizeof(float));
-  PPLX_ASSERT(xCombineOut != nullptr, "failed to allocate xCombineOut");
+    err = cudaPointerGetAttributes(&attr, extXDispatchOut);
+    PPLX_ASSERT(extXDispatchOut != nullptr, "failed to allocate extXDispatchOut");
+    PPLX_ASSERT(err == cudaSuccess && (attr.type == cudaMemoryTypeDevice || attr.type == cudaMemoryTypeManaged),
+                "extXDispatchOut is not a valid device pointer");
+    // printf("[AllToAllInterNode] extXDispatchOut allocated at %p (memType %d, device %d)\n", extXDispatchOut, attr.type, attr.device);
+    //   xDispatchOut = (std::byte *)nvshmem_malloc(maxBatchTokens * perTokenBytes);
+    xDispatchOut = (std::byte *)extXDispatchOut;
+
+    err = cudaPointerGetAttributes(&attr, extXCombineIn);
+    PPLX_ASSERT(extXCombineIn != nullptr, "failed to allocate extXCombineIn");
+    PPLX_ASSERT(err == cudaSuccess && (attr.type == cudaMemoryTypeDevice || attr.type == cudaMemoryTypeManaged),
+                "extXCombineIn is not a valid device pointer");
+    // printf("[AllToAllInterNode] extXCombineIn allocated at %p (memType %d, device %d)\n", extXCombineIn, attr.type, attr.device);
+    //   xCombineIn = (std::byte *)nvshmem_malloc(maxBatchTokens * hiddenDim * sizeof(float));
+    xCombineIn = (std::byte *)extXCombineIn;
+
+    err = cudaPointerGetAttributes(&attr, extXCombineOut);
+    PPLX_ASSERT(extXCombineOut != nullptr, "failed to allocate extXCombineOut");
+    PPLX_ASSERT(err == cudaSuccess && (attr.type == cudaMemoryTypeDevice || attr.type == cudaMemoryTypeManaged),
+                "extXCombineOut is not a valid device pointer");
+    // printf("[AllToAllInterNode] extXCombineOut allocated at %p (memType %d, device %d)\n", extXCombineOut, attr.type, attr.device);
+    //   xCombineOut = (std::byte *)nvshmem_malloc(maxNumTokens * numExperts * hiddenDim * sizeof(float));
+    xCombineOut = (std::byte *)extXCombineOut;
+
+
+    // ------------------------------------------------------------
+        // Diagnostics: print expected byte sizes that the original
+        // nvshmem_malloc calls would have allocated.  We do this once
+        // on PE/rank 0 so logs are readable.
+
+        if (rank == 0) {
+            printf("===== Expected allocation sizes (bytes) =====\n");
+            printf("numTokensBuffer       : %zu\n", sizeof(uint64_t) * numLocalExperts * numDPGroups);
+            printf("numDispatchRecvBuffer : %zu\n", sizeof(uint64_t) * numLocalExperts * numDPGroups);
+            printf("combineSignalBuffer   : %zu\n", sizeof(uint64_t) * maxNumTokens);
+            printf("combineSyncBuffer     : %zu\n", sizeof(uint64_t) * worldSize);
+            printf("xDispatchIn           : %zu\n", maxNumTokens  * perTokenBytes);
+            printf("xDispatchOut          : %zu\n", maxBatchTokens * perTokenBytes);
+            printf("xCombineIn            : %zu\n", maxBatchTokens * hiddenDim * sizeof(float));
+            printf("xCombineOut           : %zu\n", maxNumTokens  * numExperts * hiddenDim * sizeof(float));
+            printf("===========================================\n");
+
+            printf("numTokensBuffer       -> %p\n", numTokensBuffer      );
+            printf("numDispatchRecvBuffer -> %p\n", numDispatchRecvBuffer);
+            printf("combineSignalBuffer   -> %p\n", combineSignalBuffer  );
+            printf("combineSyncBuffer     -> %p\n", combineSyncBuffer    );
+            printf("xDispatchIn           -> %p\n", xDispatchIn          );
+            printf("xDispatchOut          -> %p\n", xDispatchOut         );
+            printf("xCombineIn            -> %p\n", xCombineIn           );
+            printf("xCombineOut           -> %p\n", xCombineOut  );        
+        }
+    // ------------------------------------------------------------
+
+
 
   // Buffers for token tracking.
   sourceIndex = mallocZeroBuffer<uint32_t>(maxBatchTokens);
@@ -132,14 +152,14 @@ AllToAllInterNode::AllToAllInterNode(
 
 AllToAllInterNode::~AllToAllInterNode() {
   CUDACHECK(cudaFree(numTokensPerDP));
-  nvshmem_free(numTokensBuffer);
-  nvshmem_free(numDispatchRecvBuffer);
-  nvshmem_free(combineSignalBuffer);
-  nvshmem_free(combineSyncBuffer);
-  nvshmem_free(xDispatchIn);
-  nvshmem_free(xDispatchOut);
-  nvshmem_free(xCombineIn);
-  nvshmem_free(xCombineOut);
+//   nvshmem_free(numTokensBuffer);
+//   nvshmem_free(numDispatchRecvBuffer);
+//   nvshmem_free(combineSignalBuffer);
+//   nvshmem_free(combineSyncBuffer);
+//   nvshmem_free(xDispatchIn);
+//   nvshmem_free(xDispatchOut);
+//   nvshmem_free(xCombineIn);
+//   nvshmem_free(xCombineOut);
 
   CUDACHECK(cudaFree(sourceIndex));
   CUDACHECK(cudaFree(sourceExpert));

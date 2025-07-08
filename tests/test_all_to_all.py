@@ -113,95 +113,95 @@ def _do_test_all_to_all(
             ),
         )
 
-    # # Generate the same test data on all ranks
-    # rng = torch.Generator()
-    # rng.manual_seed(123)
-    # all_rank_data = [
-    #     RankTestData(moe, rng, use_max_tokens=False) for _ in range(num_dp)
-    # ]
-    # rank_data = all_rank_data[dp_rank]
+    # Generate the same test data on all ranks
+    rng = torch.Generator()
+    rng.manual_seed(123)
+    all_rank_data = [
+        RankTestData(moe, rng, use_max_tokens=False) for _ in range(num_dp)
+    ]
+    rank_data = all_rank_data[dp_rank]
 
-    # # Collect info by expert
-    # expert_token_from: list[list[tuple[int, int]]] = [
-    #     [] for _ in range(moe.num_experts)
-    # ]
-    # for i_rank, rd in enumerate(all_rank_data):
-    #     for token_idx in range(rd.num_tokens):
-    #         for expert_idx in rd.indices[token_idx]:
-    #             expert_token_from[expert_idx].append((i_rank, token_idx))
+    # Collect info by expert
+    expert_token_from: list[list[tuple[int, int]]] = [
+        [] for _ in range(moe.num_experts)
+    ]
+    for i_rank, rd in enumerate(all_rank_data):
+        for token_idx in range(rd.num_tokens):
+            for expert_idx in rd.indices[token_idx]:
+                expert_token_from[expert_idx].append((i_rank, token_idx))
 
-    # # Print the test data
-    # if rank == 0:
-    #     logger.debug("Rank Data:")
-    #     for i_rank, rd in enumerate(all_rank_data):
-    #         logger.debug("  DP Rank %d:", i_rank)
-    #         for token_idx in range(rd.num_tokens):
-    #             indices = rd.indices[token_idx].tolist()
-    #             weights = rd.weights[token_idx].tolist()
-    #             logger.debug(
-    #                 "    x[%d] -> %s",
-    #                 token_idx,
-    #                 list(zip(indices, weights, strict=False)),
-    #             )
-    #         for token_idx in range(rd.num_tokens):
-    #             logger.debug("    x[%d]=%s", token_idx, _str_1d_tensor(rd.x[token_idx]))
-    #         if rd.x_scale is not None:
-    #             for token_idx in range(rd.num_tokens):
-    #                 logger.debug(
-    #                     "    x_scale[%d]=%s",
-    #                     token_idx,
-    #                     _str_1d_tensor(rd.x_scale[token_idx]),
-    #                 )
-    #     for expert_idx in range(moe.num_experts):
-    #         logger.debug(
-    #             "  Expert %d: %d tokens, from: %s",
-    #             expert_idx,
-    #             len(expert_token_from[expert_idx]),
-    #             [f"r{r}t{t}" for r, t in expert_token_from[expert_idx]],
-    #         )
+    # Print the test data
+    if rank == 0:
+        logger.debug("Rank Data:")
+        for i_rank, rd in enumerate(all_rank_data):
+            logger.debug("  DP Rank %d:", i_rank)
+            for token_idx in range(rd.num_tokens):
+                indices = rd.indices[token_idx].tolist()
+                weights = rd.weights[token_idx].tolist()
+                logger.debug(
+                    "    x[%d] -> %s",
+                    token_idx,
+                    list(zip(indices, weights, strict=False)),
+                )
+            for token_idx in range(rd.num_tokens):
+                logger.debug("    x[%d]=%s", token_idx, _str_1d_tensor(rd.x[token_idx]))
+            if rd.x_scale is not None:
+                for token_idx in range(rd.num_tokens):
+                    logger.debug(
+                        "    x_scale[%d]=%s",
+                        token_idx,
+                        _str_1d_tensor(rd.x_scale[token_idx]),
+                    )
+        for expert_idx in range(moe.num_experts):
+            logger.debug(
+                "  Expert %d: %d tokens, from: %s",
+                expert_idx,
+                len(expert_token_from[expert_idx]),
+                [f"r{r}t{t}" for r, t in expert_token_from[expert_idx]],
+            )
 
-    # # Dispatch
-    # num_local_experts = moe.num_experts // world_size
-    # expert_num_tokens = torch.empty(
-    #     num_local_experts,
-    #     dtype=torch.int32,
-    #     device=device,
-    # )
-    # expert_x = torch.empty(
-    #     (num_local_experts, moe.max_num_tokens * num_dp, moe.hidden_dim),
-    #     dtype=moe.in_dtype,
-    #     device=device,
-    # )
-    # expert_x_scale: torch.Tensor | None = None
-    # if moe.in_dtype.itemsize == 1:
-    #     expert_x_scale = torch.empty(
-    #         (
-    #             num_local_experts,
-    #             expert_x.size(1),
-    #             (expert_x.size(2) + moe.block_size - 1) // moe.block_size,
-    #         ),
-    #         dtype=torch.float32,
-    #         device=device,
-    #     )
-    # bound_m = torch.tensor([rank_data.num_tokens], dtype=torch.uint32, device=device)
-    # logger.debug("[rank=%d] Dispatch", rank)
+    # Dispatch
+    num_local_experts = moe.num_experts // world_size
+    expert_num_tokens = torch.empty(
+        num_local_experts,
+        dtype=torch.int32,
+        device=device,
+    )
+    expert_x = torch.empty(
+        (num_local_experts, moe.max_num_tokens * num_dp, moe.hidden_dim),
+        dtype=moe.in_dtype,
+        device=device,
+    )
+    expert_x_scale: torch.Tensor | None = None
+    if moe.in_dtype.itemsize == 1:
+        expert_x_scale = torch.empty(
+            (
+                num_local_experts,
+                expert_x.size(1),
+                (expert_x.size(2) + moe.block_size - 1) // moe.block_size,
+            ),
+            dtype=torch.float32,
+            device=device,
+        )
+    bound_m = torch.tensor([rank_data.num_tokens], dtype=torch.uint32, device=device)
+    logger.debug("[rank=%d] Dispatch", rank)
 
-    # dispatch = torch.compile(ata.dispatch) if use_compile else ata.dispatch
+    dispatch = torch.compile(ata.dispatch) if use_compile else ata.dispatch
 
-    # dispatch(
-    #     out_expert_num_tokens=expert_num_tokens,
-    #     out_expert_x=expert_x,
-    #     out_expert_x_scale=expert_x_scale,
-    #     dp_x=rank_data.x.to(device),
-    #     dp_x_scale=(
-    #         rank_data.x_scale.to(device) if rank_data.x_scale is not None else None
-    #     ),
-    #     indices=rank_data.indices.to(device).to(torch.uint32),
-    #     bound_m=bound_m,
-    # )
+    dispatch(
+        out_expert_num_tokens=expert_num_tokens,
+        out_expert_x=expert_x,
+        out_expert_x_scale=expert_x_scale,
+        dp_x=rank_data.x.to(device),
+        dp_x_scale=(
+            rank_data.x_scale.to(device) if rank_data.x_scale is not None else None
+        ),
+        indices=rank_data.indices.to(device).to(torch.uint32),
+        bound_m=bound_m,
+    )
 
-    # torch.cuda.synchronize()
-    # logger.debug("[rank=%d] Dispatch done", rank)
+    torch.cuda.synchronize()
+    logger.debug("[rank=%d] Dispatch done", rank)
 
     # # Print and verify the output
     # for i_rank in range(world_size):
@@ -347,6 +347,15 @@ def _worker_test_all_to_all(
     
     num_ranks = dist.get_world_size()
     rank_id = dist.get_rank()
+
+    # -------------- TO DELETE --------------------
+
+    ### IT DOES WORK BUT WE'RE STILL USING THEIR BAD PYTHON BINDINGS **somewhere**
+    uid = nvshmem_get_unique_id() if pgi.rank == 0 else nvshmem_alloc_empty_unique_id()
+    torch.distributed.broadcast(uid, src=0)
+    nvshmem_init(uid, pgi.rank, pgi.world_size)
+    # -------------- TO DELETE --------------------
+
 
     # Create a unique NVSHMEM UID on rank 0, empty UID on others
     uniqueid = nvshmem.get_unique_id(empty=True)
