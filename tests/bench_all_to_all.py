@@ -8,6 +8,7 @@ from pathlib import Path
 
 import torch
 
+
 from pplx_kernels.all_to_all import AllToAll
 from pplx_kernels.nvshmem import (
     nvshmem_alloc_empty_unique_id,
@@ -25,6 +26,12 @@ from .distributed_utils import (
     parallel_launch,
     parallel_launch_from_env,
 )
+
+
+
+import torch.distributed as dist
+import nvshmem.core as nvshmem
+from cuda.core.experimental import Device
 
 logger = logging.getLogger(__name__)
 
@@ -236,9 +243,51 @@ def _worker_bench_all_to_all(
     in_dtype_str: str,
     out_dtype_str: str,
 ) -> None:
-    uid = nvshmem_get_unique_id() if pgi.rank == 0 else nvshmem_alloc_empty_unique_id()
-    torch.distributed.broadcast(uid, src=0)
-    nvshmem_init(uid, pgi.rank, pgi.world_size)
+
+    # print(f"[PGI.RANK {pgi.rank}] IS IN HERE")
+
+    # # -------------- TO DELETE --------------------
+    # uid = nvshmem_get_unique_id() if pgi.rank == 0 else nvshmem_alloc_empty_unique_id()
+    # torch.distributed.broadcast(uid, src=0)
+    # nvshmem_init(uid, pgi.rank, pgi.world_size)
+    # # -------------- TO DELETE --------------------
+
+    local_rank = int(os.environ["LOCAL_RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
+
+    # Set devices for both PyTorch and raw CUDA APIs
+    torch.cuda.set_device(local_rank)
+    device = torch.device("cuda", local_rank)
+
+    dev = Device(local_rank)
+    dev.set_current()
+
+    # Initialise torch.distributed FIRST (required for broadcasts)
+    dist.init_process_group(
+        backend="cpu:gloo,cuda:nccl",
+        rank=local_rank,
+        world_size=world_size,
+        device=dev,
+    )
+
+    # Broadcast an NVSHMEM UID from rank-0 then initialise the Core runtime
+    if dist.get_rank() == 0:
+        uid_obj = nvshmem.get_unique_id()
+        uid_list = [uid_obj]
+    else:
+        uid_list = [None]
+
+    dist.broadcast_object_list(uid_list, src=0)
+    dist.barrier()
+
+    nvshmem.init(
+        # device=dev,
+        uid=uid_list[0],
+        rank=dist.get_rank(),
+        nranks=dist.get_world_size(),
+        initializer_method="uid",
+    )
+    nvshmem.collective.barrier(nvshmem.Teams.TEAM_WORLD)
 
     in_dtype = getattr(torch, in_dtype_str)
     out_dtype = getattr(torch, out_dtype_str)
@@ -302,7 +351,7 @@ def _worker_bench_all_to_all(
     for config in configs:
         if pgi.world_size > config.num_experts:
             continue
-        meta, result = bench_all_to_all(pgi, dp_size, config)
+        # meta, result = bench_all_to_all(pgi, dp_size, config)
         dispatch_bytes, combine_bytes, a2a_bytes, nvshmem_bytes = meta
         if pgi.rank == 0:
             row: dict[str, str] = {
@@ -334,7 +383,8 @@ def _worker_bench_all_to_all(
         f_out.close()
         print("Saved to", outpath)
 
-    nvshmem_finalize()
+    # nvshmem.finalize()
+    # dist.destroy_process_group()
 
 
 def main() -> None:
@@ -363,11 +413,20 @@ def main() -> None:
     #         world_size, _worker_bench_all_to_all, dp_size, in_dtype, out_dtype
     #     )
 
-    if "LOCAL_RANK" not in os.environ or "WORLD_SIZE" not in os.environ:
-        pytest.skip("Must be run with torchrun")
-    
-    world_size = int(os.environ["WORLD_SIZE"])
-    local_rank = int(os.environ["LOCAL_RANK"])
+    local_rank = int(os.environ['LOCAL_RANK'])
+    world_size = int(os.environ['WORLD_SIZE'])
+
+    pgi = ProcessGroupInfo(
+        world_size=world_size,
+        world_local_size=int(os.environ.get("LOCAL_WORLD_SIZE", world_size)),
+        rank=int(os.environ["RANK"]),
+        node_rank=int(os.environ.get("NODE_RANK", 0)),
+        local_rank=local_rank,
+        device=torch.device("cuda", local_rank),
+    )
+
+
+    _worker_bench_all_to_all(pgi, dp_size, in_dtype, out_dtype)
 
 
 

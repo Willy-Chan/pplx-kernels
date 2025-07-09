@@ -353,7 +353,11 @@ def _worker_test_all_to_all(
 
 
 
-    
+    #TODO 7/8/25: FOUND THE ISSUE WITH THE INITIALIZAITON:
+    # PROBABLY RELATED TO : nvshmemx_cumodule_init
+        # look up the EXAMPLE of this
+        # DOESN'T have a nvshmem.core binding so you will need to just call it directly
+        # the issue is that nvshmem.init only does HOST-SIDE INITIALIZATION, we also need to do device-side initialization!!!!
 
 
     # Create a unique NVSHMEM UID on rank 0, empty UID on others
