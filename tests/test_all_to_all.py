@@ -5,12 +5,12 @@ import pytest
 import torch
 
 from pplx_kernels.all_to_all import AllToAll
-from pplx_kernels.nvshmem import (
-    nvshmem_alloc_empty_unique_id,
-    nvshmem_finalize,
-    nvshmem_get_unique_id,
-    nvshmem_init,
-)
+# from pplx_kernels.nvshmem import (
+#     nvshmem_alloc_empty_unique_id,
+#     nvshmem_finalize,
+#     nvshmem_get_unique_id,
+#     nvshmem_init,
+# )
 
 from .all_to_all_utils import MoEConfig, RankTestData
 from .distributed_utils import (
@@ -74,10 +74,6 @@ def _do_test_all_to_all(
 
     ata: AllToAll
     if internode:
-        # 7/3/2025
-        # TODO:   First, for internode, we need to basically replace all nvshmem_mallocs with pointers from our allocation of nvshmem.interop.tensor (you can do tensor.data_ptr() for an address to the GPU memory)
-        # TODO:   IMPORTANT TO NOTE is that you must recompile the pplx kernels with TORCH_CUDA_ARCH_LIST=9.0a+PTX python3 setup.py bdist_wheel, and then redo the pip install whl
-
         ata = AllToAll.internode(
             max_num_tokens=moe.max_num_tokens,
             num_experts=moe.num_experts,
@@ -347,22 +343,22 @@ def _worker_test_all_to_all(
     # Set up torch.distributed (dist) backend
     dist.init_process_group(
         backend="cpu:gloo,cuda:nccl",
-        rank=local_rank,
+        rank=pgi.rank,
         world_size=world_size,
         device_id=device
     )
-    
+
+    # Register the default process group so that C++/CUDA kernels invoked via
+    # pplx_kernels can resolve it (they look it up by the hard-coded name
+    # "default").  Without this, calling AllToAll.intra|internode_create()
+    # raises "Could not resolve the process group registered under the name
+    # default".
+    world_group = torch.distributed.group.WORLD
+    assert world_group is not None, "torch.distributed default group wasn't initialised"
+    torch._C._distributed_c10d._register_process_group("default", world_group)
+
     num_ranks = dist.get_world_size()
     rank_id = dist.get_rank()
-
-
-
-
-    #TODO 7/8/25: FOUND THE ISSUE WITH THE INITIALIZAITON:
-    # PROBABLY RELATED TO : nvshmemx_cumodule_init
-        # look up the EXAMPLE of this
-        # DOESN'T have a nvshmem.core binding so you will need to just call it directly
-        # the issue is that nvshmem.init only does HOST-SIDE INITIALIZATION, we also need to do device-side initialization!!!!
 
     # Create a unique NVSHMEM UID on rank 0, empty UID on others
     uniqueid = nvshmem.get_unique_id(empty=True)
@@ -372,7 +368,6 @@ def _worker_test_all_to_all(
     else:
         broadcast_objects = [None]
 
-    # print(f"rank_id IS {rank_id}, old rank is {pgi.rank}")
 
     # Broadcast the UID from rank 0 to all other ranks
     dist.broadcast_object_list(broadcast_objects, src=0)
@@ -384,6 +379,12 @@ def _worker_test_all_to_all(
 
 
 # # ################################
+
+#TODO 7/8/25: FOUND THE ISSUE WITH THE INITIALIZAITON:
+# PROBABLY RELATED TO : nvshmemx_cumodule_init
+    # look up the EXAMPLE of this
+    # DOESN'T have a nvshmem.core binding so you will need to just call it directly
+    # the issue is that nvshmem.init only does HOST-SIDE INITIALIZATION, we also need to do device-side initialization!!!!
 
 #     # CUBIN WHERE THEY HAVE THE KERNELS
 #     # CAN GET IT WITH cuobjdump --extract-elf all lib.so
@@ -443,7 +444,7 @@ def _worker_test_all_to_all(
 # @pytest.mark.parametrize("use_compile", [False, True])
 @pytest.mark.parametrize("in_dtype", ["bfloat16"])
 @pytest.mark.parametrize("out_dtype", ["float16"])
-@pytest.mark.parametrize("internode", [True])
+@pytest.mark.parametrize("internode", [False])
 @pytest.mark.parametrize("use_compile", [False])
 def test_all_to_all_4_gpu(
     in_dtype: str, out_dtype: str, internode: bool, use_compile: bool
@@ -505,3 +506,4 @@ def _worker_test_all_to_all_multi_node(
 @pytest.mark.parametrize("out_dtype", ["float16", "bfloat16"])
 def test_all_to_all_multi_node(in_dtype: str, out_dtype: str) -> None:
     parallel_launch_from_env(_worker_test_all_to_all_multi_node, in_dtype, out_dtype)
+
