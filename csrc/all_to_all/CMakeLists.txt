@@ -8,6 +8,10 @@ target_link_libraries(all_to_all_common PUBLIC
     CUDA::cudart
 )
 
+set_source_files_properties(internode_combine.cu PROPERTIES
+    CUDA_PTX_COMPILATION ON
+)
+
 add_library(all_to_all_intranode_lib STATIC
     intranode_combine.cu
     intranode_dispatch.cu

@@ -102,10 +102,10 @@ __global__ __launch_bounds__(NUM_WARPS * 32, 1) void dispatchKernel(
         uint64_t *dstCount = &numTokensBuffer[dstLocalExpert * numDPGroups + dpGroup];
 
         if (laneId == 0) {
-          // ######################### Debug: check if dstCount is valid ##############################
-          printf("[RANK %d] dstCount: dstRank=%d, dstCount=%p (0x%lx), numTokensPerExpert=%u\n", rank,
-                  dstRank, dstCount, (uintptr_t)dstCount, numTokensPerExpert);
-          // ##########################################################################################
+          // // ######################### Debug: check if dstCount is valid ##############################
+          // printf("[RANK %d] dstCount: dstRank=%d, dstCount=%p (0x%lx), numTokensPerExpert=%u\n", rank,
+          //         dstRank, dstCount, (uintptr_t)dstCount, numTokensPerExpert);
+          // // ##########################################################################################
           nvshmemx_signal_op(dstCount, numTokensPerExpert + 1, NVSHMEM_SIGNAL_SET, dstRank);
         }
       }

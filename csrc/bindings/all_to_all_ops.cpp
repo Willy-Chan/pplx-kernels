@@ -72,30 +72,6 @@ fptr_t create_internode(
     at::Tensor xCombineOut
 ) {
 
-  // TODO: PRINT THIS OUT!!!!!!!!!
-  if (rank == 1) {
-    printf("[CPP_before] numTokensBuffer = %p\n", numTokensBuffer.data_ptr());
-    printf("[CPP_before] numDispatchRecvBuffer = %p\n", numDispatchRecvBuffer.data_ptr());
-    printf("[CPP_before] combineSignalBuffer = %p\n", combineSignalBuffer.data_ptr());
-    printf("[CPP_before] combineSyncBuffer = %p\n", combineSyncBuffer.data_ptr());
-    printf("[CPP_before] xDispatchIn = %p\n", xDispatchIn.data_ptr());
-    printf("[CPP_before] xDispatchOut = %p\n", xDispatchOut.data_ptr());
-    printf("[CPP_before] xCombineIn = %p\n", xCombineIn.data_ptr());
-    printf("[CPP_before] xCombineOut = %p\n", xCombineOut.data_ptr());
-  }
-
-  if (rank == 1) {
-    printf("[CPP_after] numTokensBuffer = %p\n",      reinterpret_cast<uint64_t*>(numTokensBuffer.data_ptr()));
-    printf("[CPP_after] numDispatchRecvBuffer = %p\n",reinterpret_cast<uint64_t*>(numDispatchRecvBuffer.data_ptr()));
-    printf("[CPP_after] combineSignalBuffer = %p\n",  reinterpret_cast<uint64_t*>(combineSignalBuffer.data_ptr()));
-    printf("[CPP_after] combineSyncBuffer = %p\n",    reinterpret_cast<uint64_t*>(combineSyncBuffer.data_ptr()));
-    printf("[CPP_after] xDispatchIn = %p\n",          reinterpret_cast<std::byte*>(xDispatchIn.data_ptr()));
-    printf("[CPP_after] xDispatchOut = %p\n",         reinterpret_cast<std::byte*>(xDispatchOut.data_ptr()));
-    printf("[CPP_after] xCombineIn = %p\n",           reinterpret_cast<std::byte*>(xCombineIn.data_ptr()));
-    printf("[CPP_after] xCombineOut = %p\n",          reinterpret_cast<std::byte*>(xCombineOut.data_ptr()));
-  }
-
-
   auto *ptr = new AllToAllInterNode(
       maxNumTokens,
       numExperts,

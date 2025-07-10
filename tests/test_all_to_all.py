@@ -20,12 +20,17 @@ from .distributed_utils import (
     require_multi_node,
 )
 
-from cuda.core.experimental import Device, system
+from cuda.core.experimental import Device, system, Program, ProgramOptions
 import nvshmem.core as nvshmem
 import numpy as np
 import os
 import torch.distributed as dist
 from nvshmem.core import Teams
+
+# Need to import the bindings for device-side initialization (nvshmem4py.init only does host-side initialization)
+import cuda.bindings
+import nvshmem.bindings as bindings
+
 
 logger = logging.getLogger(__name__)
 
@@ -203,99 +208,99 @@ def _do_test_all_to_all(
     torch.cuda.synchronize()
     logger.debug("[rank=%d] Dispatch done", rank)
 
-    # # Print and verify the output
-    # for i_rank in range(world_size):
-    #     if world_size > 1:
-    #         torch.distributed.barrier()
-    #     if i_rank != rank:
-    #         continue
-    #     for i_local_expert in range(num_local_experts):
-    #         expert_idx = i_rank * num_local_experts + i_local_expert
-    #         cnt_tokens = int(expert_num_tokens[i_local_expert].item())
-    #         logger.debug(
-    #             "Expert #%d on Rank %d: %d tokens",
-    #             expert_idx,
-    #             rank,
-    #             cnt_tokens,
-    #         )
-    #         assert cnt_tokens == len(expert_token_from[expert_idx])
-    #         cnt_from_dp_rank = [0] * num_dp
-    #         src_tokens = set()
-    #         src_scales = set()
-    #         dst_tokens = set()
-    #         dst_scales = set()
-    #         for i_token in range(cnt_tokens):
-    #             src_dp_rank, src_token_idx = expert_token_from[expert_idx][i_token]
-    #             cnt_from_dp_rank[src_dp_rank] += 1
-    #             dst_x = expert_x[i_local_expert, i_token]
-    #             src_rank_data = all_rank_data[src_dp_rank]
-    #             src_x = src_rank_data.x[src_token_idx]
-    #             logger.debug(
-    #                 "  x[%d] (from DP Rank %d Token %d): %s",
-    #                 i_token,
-    #                 src_dp_rank,
-    #                 src_token_idx,
-    #                 _str_1d_tensor(dst_x.cpu()),
-    #             )
-    #             dst_tokens.add(tuple(dst_x.cpu().tolist()))
-    #             src_tokens.add(tuple(src_x.cpu().tolist()))
+    # Print and verify the output
+    for i_rank in range(world_size):
+        if world_size > 1:
+            torch.distributed.barrier()
+        if i_rank != rank:
+            continue
+        for i_local_expert in range(num_local_experts):
+            expert_idx = i_rank * num_local_experts + i_local_expert
+            cnt_tokens = int(expert_num_tokens[i_local_expert].item())
+            logger.debug(
+                "Expert #%d on Rank %d: %d tokens",
+                expert_idx,
+                rank,
+                cnt_tokens,
+            )
+            assert cnt_tokens == len(expert_token_from[expert_idx])
+            cnt_from_dp_rank = [0] * num_dp
+            src_tokens = set()
+            src_scales = set()
+            dst_tokens = set()
+            dst_scales = set()
+            for i_token in range(cnt_tokens):
+                src_dp_rank, src_token_idx = expert_token_from[expert_idx][i_token]
+                cnt_from_dp_rank[src_dp_rank] += 1
+                dst_x = expert_x[i_local_expert, i_token]
+                src_rank_data = all_rank_data[src_dp_rank]
+                src_x = src_rank_data.x[src_token_idx]
+                logger.debug(
+                    "  x[%d] (from DP Rank %d Token %d): %s",
+                    i_token,
+                    src_dp_rank,
+                    src_token_idx,
+                    _str_1d_tensor(dst_x.cpu()),
+                )
+                dst_tokens.add(tuple(dst_x.cpu().tolist()))
+                src_tokens.add(tuple(src_x.cpu().tolist()))
 
-    #             if moe.in_dtype.itemsize == 1:
-    #                 assert expert_x_scale is not None
-    #                 assert src_rank_data.x_scale is not None
-    #                 dst_x_scale = expert_x_scale[i_local_expert, i_token]
-    #                 src_x_scale = src_rank_data.x_scale[src_token_idx]
-    #                 logger.debug(
-    #                     "  x_scale[%d]                   : %s",
-    #                     i_token,
-    #                     _str_1d_tensor(dst_x_scale.cpu()),
-    #                 )
-    #                 src_scales.add(tuple(src_x_scale.cpu().tolist()))
-    #                 dst_scales.add(tuple(dst_x_scale.cpu().tolist()))
+                if moe.in_dtype.itemsize == 1:
+                    assert expert_x_scale is not None
+                    assert src_rank_data.x_scale is not None
+                    dst_x_scale = expert_x_scale[i_local_expert, i_token]
+                    src_x_scale = src_rank_data.x_scale[src_token_idx]
+                    logger.debug(
+                        "  x_scale[%d]                   : %s",
+                        i_token,
+                        _str_1d_tensor(dst_x_scale.cpu()),
+                    )
+                    src_scales.add(tuple(src_x_scale.cpu().tolist()))
+                    dst_scales.add(tuple(dst_x_scale.cpu().tolist()))
 
-    #         assert src_scales == dst_scales
-    #         assert src_tokens == dst_tokens
+            assert src_scales == dst_scales
+            assert src_tokens == dst_tokens
 
-    # # Pretend to do some computation
-    # val = 1.5
-    # expert_y = expert_x.to(moe.out_dtype) * val
+    # Pretend to do some computation
+    val = 1.5
+    expert_y = expert_x.to(moe.out_dtype) * val
 
-    # # Combine
-    # y = torch.full(
-    #     (moe.max_num_tokens, moe.hidden_dim),
-    #     torch.nan,
-    #     dtype=moe.out_dtype,
-    #     device=device,
-    # )
+    # Combine
+    y = torch.full(
+        (moe.max_num_tokens, moe.hidden_dim),
+        torch.nan,
+        dtype=moe.out_dtype,
+        device=device,
+    )
 
-    # logger.debug("[rank=%d] Combine", rank)
+    logger.debug("[rank=%d] Combine", rank)
 
-    # combine = torch.compile(ata.combine) if use_compile else ata.combine
+    combine = torch.compile(ata.combine) if use_compile else ata.combine
 
-    # combine(
-    #     out_tokens=y,
-    #     indices=rank_data.indices.to(device).to(torch.uint32),
-    #     weights=rank_data.weights.to(device),
-    #     expert_y=expert_y,
-    #     bound_m=bound_m,
-    # )
-    # torch.cuda.synchronize()
-    # logger.debug("[rank=%d] Combine done", rank)
+    combine(
+        out_tokens=y,
+        indices=rank_data.indices.to(device).to(torch.uint32),
+        weights=rank_data.weights.to(device),
+        expert_y=expert_y,
+        bound_m=bound_m,
+    )
+    torch.cuda.synchronize()
+    logger.debug("[rank=%d] Combine done", rank)
 
-    # # Destroy.
-    # ata.destroy()
+    # Destroy.
+    ata.destroy()
 
-    # # Verify the output
-    # ref_y = torch.zeros(
-    #     rank_data.num_tokens, moe.hidden_dim, dtype=y.dtype, device=device
-    # )
-    # for i_token in range(rank_data.num_tokens):
-    #     for i_expert in range(moe.experts_per_token):
-    #         expert_idx = int(rank_data.indices[i_token, i_expert].item())
-    #         weight = float(rank_data.weights[i_token, i_expert].item())
-    #         ref_y[i_token] += rank_data.x[i_token].to(device).to(y.dtype) * val * weight
-    # torch.testing.assert_close(y[: rank_data.num_tokens], ref_y)
-    # print(f"y is {y[: rank_data.num_tokens]}, ref_y is {ref_y}")
+    # Verify the output
+    ref_y = torch.zeros(
+        rank_data.num_tokens, moe.hidden_dim, dtype=y.dtype, device=device
+    )
+    for i_token in range(rank_data.num_tokens):
+        for i_expert in range(moe.experts_per_token):
+            expert_idx = int(rank_data.indices[i_token, i_expert].item())
+            weight = float(rank_data.weights[i_token, i_expert].item())
+            ref_y[i_token] += rank_data.x[i_token].to(device).to(y.dtype) * val * weight
+    torch.testing.assert_close(y[: rank_data.num_tokens], ref_y)
+    print(f"y is {y[: rank_data.num_tokens]}, ref_y is {ref_y}")
 
 
 
@@ -359,7 +364,6 @@ def _worker_test_all_to_all(
         # DOESN'T have a nvshmem.core binding so you will need to just call it directly
         # the issue is that nvshmem.init only does HOST-SIDE INITIALIZATION, we also need to do device-side initialization!!!!
 
-
     # Create a unique NVSHMEM UID on rank 0, empty UID on others
     uniqueid = nvshmem.get_unique_id(empty=True)
     if rank_id == 0:
@@ -377,30 +381,56 @@ def _worker_test_all_to_all(
     # Initialize NVSHMEM with the broadcasted UID
     nvshmem.init(device=dev, uid=broadcast_objects[0], rank=rank_id, nranks=num_ranks, initializer_method="uid")
 
+
+
+# # ################################
+
+#     # CUBIN WHERE THEY HAVE THE KERNELS
+#     # CAN GET IT WITH cuobjdump --extract-elf all lib.so
+#     cubin_path = "/lustre/fsw/portfolios/coreai/projects/coreai_libraries_nvshmem/wilchan/pplx-kernels/objs/libpplx_kernels.1.sm_90a.cubin"
+
+#     # Load the cubin file as a library
+#     res, returned_library = cuda.bindings.driver.cuLibraryLoadFromFile(
+#         cubin_path.encode(),  # fileName as bytes
+#         None,                  # jitOptions
+#         None,                  # jitOptionsValues  
+#         0,                     # numJitOptions
+#         None,                  # libraryOptions
+#         None,                  # libraryOptionValues
+#         0                      # numLibraryOptions
+#     )
+#     assert res == cuda.bindings.driver.CUresult.CUDA_SUCCESS
+
+
+#     # TODO: successfully loads from file, but this pointer is still invalid for some reason??
+#     # Also I'm using nvshmem bindings here and not cuda bindings...
+#     bindings.cumodule_init(returned_library.getPtr())
+# ################################
+
+
     moe_config = dataclasses.replace(
         moe_config,
         in_dtype=getattr(torch, in_dtype),
         out_dtype=getattr(torch, out_dtype),
     )
 
+    # # -------------- TO DELETE --------------------
+    # ## THIS DOES SOMETHING TO THE DEVICE BUFFERS...
+    # # TODO: THINKING THAT WE ARE NOT BROADCASTING THE UNIQUE ID CORRECTLY HERE
+    # uid = nvshmem_get_unique_id() if pgi.rank == 0 else nvshmem_alloc_empty_unique_id()
+    # torch.distributed.broadcast(uid, src=0)
 
-
-    # -------------- TO DELETE --------------------
-    ## THIS DOES SOMETHING TO THE DEVICE BUFFERS...
-    # TODO: THINKING THAT WE ARE NOT BROADCASTING THE UNIQUE ID CORRECTLY HERE
-    uid = nvshmem_get_unique_id() if pgi.rank == 0 else nvshmem_alloc_empty_unique_id()
-    torch.distributed.broadcast(uid, src=0)
-
-    print(f"[UID RANK {pgi.rank}] has pgi.uid {uid} and uniqueid {uniqueid}")
-    nvshmem_init(uid, pgi.rank, pgi.world_size)
-    # -------------- TO DELETE --------------------
-
-
-
+    # print(f"[UID RANK {pgi.rank}] has pgi.uid {uid} and uniqueid {uniqueid}")
+    # nvshmem_init(uid, pgi.rank, pgi.world_size)
+    # # -------------- TO DELETE --------------------
 
 
     # each PE will run this _do_test_all_to_all method simulating a MoE model.
     _do_test_all_to_all(pgi, dp_size, moe_config, internode, stream)
+
+# ################################
+#     bindings.cumodule_finalize(returned_library.getPtr())
+# ################################
 
     nvshmem.finalize()
     dist.destroy_process_group()

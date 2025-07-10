@@ -225,15 +225,15 @@ class AllToAll:
         xCombineIn = nvshmem.interop.torch.tensor( (max_batch_tokens * hidden_dim,), dtype=torch.float32 )
         xCombineOut = nvshmem.interop.torch.tensor( (max_num_tokens * num_experts * hidden_dim,), dtype=torch.float32 )
 
-        if rank == 1:
-            print(f"[PYTHON] numTokensBuffer = 0x{numTokensBuffer.data_ptr():x}")
-            print(f"[PYTHON] numDispatchRecvBuffer = 0x{numDispatchRecvBuffer.data_ptr():x}")
-            print(f"[PYTHON] combineSignalBuffer = 0x{combineSignalBuffer.data_ptr():x}")
-            print(f"[PYTHON] combineSyncBuffer = 0x{combineSyncBuffer.data_ptr():x}")
-            print(f"[PYTHON] xDispatchIn = 0x{xDispatchIn.data_ptr():x}")
-            print(f"[PYTHON] xDispatchOut = 0x{xDispatchOut.data_ptr():x}")
-            print(f"[PYTHON] xCombineIn = 0x{xCombineIn.data_ptr():x}")
-            print(f"[PYTHON] xCombineOut = 0x{xCombineOut.data_ptr():x}")
+        # if rank == 1:
+        #     print(f"[PYTHON] numTokensBuffer = 0x{numTokensBuffer.data_ptr():x}")
+        #     print(f"[PYTHON] numDispatchRecvBuffer = 0x{numDispatchRecvBuffer.data_ptr():x}")
+        #     print(f"[PYTHON] combineSignalBuffer = 0x{combineSignalBuffer.data_ptr():x}")
+        #     print(f"[PYTHON] combineSyncBuffer = 0x{combineSyncBuffer.data_ptr():x}")
+        #     print(f"[PYTHON] xDispatchIn = 0x{xDispatchIn.data_ptr():x}")
+        #     print(f"[PYTHON] xDispatchOut = 0x{xDispatchOut.data_ptr():x}")
+        #     print(f"[PYTHON] xCombineIn = 0x{xCombineIn.data_ptr():x}")
+        #     print(f"[PYTHON] xCombineOut = 0x{xCombineOut.data_ptr():x}")
 
         ptr = _ops.all_to_all_internode_create(
             max_num_tokens,
