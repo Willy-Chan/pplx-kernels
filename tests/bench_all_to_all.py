@@ -169,15 +169,15 @@ def bench_all_to_all(
             [torch.cuda.Event(enable_timing=True) for _ in range(5)]
             for _ in range(num_samples)
         ]
-        torch_stream = PyTorchStreamWrapper(torch.cuda.current_stream())
+        torch_stream_wrapped = PyTorchStreamWrapper(torch.cuda.current_stream())
 
         for e0, e1, e2, e3, e4 in events:
             # nvshmem_barrier_all_on_current_stream()
             team = Teams.TEAM_WORLD   # TODO: IS THIS THE CORRECT TEAM?
-            old = torch.cuda.current_stream()
-            nvshmem.collective.barrier(team, torch_stream)
+            torch_stream_ = torch.cuda.current_stream()
+            nvshmem.collective.barrier(team, torch_stream_wrapped)
 
-            e0.record(old)
+            e0.record(torch_stream_)
 
             ata.dispatch(
                 out_expert_num_tokens=expert_num_tokens,
@@ -188,7 +188,7 @@ def bench_all_to_all(
                 indices=indices,
                 bound_m=bound_m,
             )
-            e1.record(old)
+            e1.record(torch_stream_)
 
             ata.combine(
                 out_tokens=y,
@@ -197,18 +197,18 @@ def bench_all_to_all(
                 expert_y=expert_y,
                 bound_m=bound_m,
             )
-            e2.record(old)
+            e2.record(torch_stream_)
 
             torch.distributed.all_to_all_single(a2a_out_tensor, a2a_tensor)
-            e3.record(old)
+            e3.record(torch_stream_)
 
             
-            nvshmem.collective.alltoall(team, nvshmem_out, nvshmem_in, stream=torch_stream)
+            nvshmem.collective.alltoall(team, nvshmem_out, nvshmem_in, stream=torch_stream_wrapped)
 
-            e4.record(old)
+            e4.record(torch_stream_)
 
         # Get latency
-        old.synchronize()
+        torch_stream_.synchronize()
         sum_dispatch_us = 0.0
         sum_combine_us = 0.0
         sum_a2a_us = 0.0
