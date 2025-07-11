@@ -9,6 +9,7 @@ from pathlib import Path
 import torch
 
 from pplx_kernels.all_to_all import AllToAll
+###########  TO DELETE  ###########
 from pplx_kernels.nvshmem import (
     nvshmem_alloc_empty_unique_id,
     # nvshmem_alltoall,
@@ -18,6 +19,7 @@ from pplx_kernels.nvshmem import (
     nvshmem_init,
     # nvshmem_malloc,
 )
+###########  TO DELETE  ###########
 
 from .all_to_all_utils import MoEConfig, RankTestData
 from .distributed_utils import (
@@ -26,9 +28,6 @@ from .distributed_utils import (
     parallel_launch_from_env,
 )
 
-
-
-
 from cuda.core.experimental import Device, system, Program, ProgramOptions
 import nvshmem.core as nvshmem
 import numpy as np
@@ -36,18 +35,7 @@ import os
 import torch.distributed as dist
 from nvshmem.core import Teams
 
-# Need to import the bindings for device-side initialization (nvshmem4py.init only does host-side initialization)
-import cuda.bindings
-import nvshmem.bindings as bindings
-
-
-
-
-
-
-
 logger = logging.getLogger(__name__)
-
 
 @torch.inference_mode()
 def bench_all_to_all(
@@ -144,10 +132,8 @@ def bench_all_to_all(
     )
     a2a_out_tensor = torch.empty_like(a2a_tensor)
 
-    # nvshmem_in = nvshmem_malloc(a2a_shape, torch.uint8, device)
-    # nvshmem_out = nvshmem_malloc(a2a_shape, torch.uint8, device)
-    nvshmem_in = nvshmem.interop.torch.tensor( a2a_shape, dtype=torch.uint8 )
-    nvshmem_out = nvshmem.interop.torch.tensor( a2a_shape, dtype=torch.uint8 )
+    nvshmem_in  =   nvshmem.interop.torch.tensor( a2a_shape, dtype=torch.uint8 )    # nvshmem_malloc(a2a_shape, torch.uint8, device)
+    nvshmem_out =   nvshmem.interop.torch.tensor( a2a_shape, dtype=torch.uint8 )   # nvshmem_malloc(a2a_shape, torch.uint8, device)
 
     # Compute stats
     dispatch_bytes = (
@@ -172,10 +158,9 @@ def bench_all_to_all(
         torch_stream_wrapped = PyTorchStreamWrapper(torch.cuda.current_stream())
 
         for e0, e1, e2, e3, e4 in events:
-            # nvshmem_barrier_all_on_current_stream()
-            team = Teams.TEAM_WORLD   # TODO: IS THIS THE CORRECT TEAM?
+            team = Teams.TEAM_WORLD
             torch_stream_ = torch.cuda.current_stream()
-            nvshmem.collective.barrier(team, torch_stream_wrapped)
+            nvshmem.collective.barrier(team, torch_stream_wrapped)     # nvshmem_barrier_all_on_current_stream()
 
             e0.record(torch_stream_)
 
@@ -200,10 +185,10 @@ def bench_all_to_all(
             e2.record(torch_stream_)
 
             torch.distributed.all_to_all_single(a2a_out_tensor, a2a_tensor)
+
             e3.record(torch_stream_)
 
-            
-            nvshmem.collective.alltoall(team, nvshmem_out, nvshmem_in, stream=torch_stream_wrapped)
+            nvshmem.collective.alltoall(team, nvshmem_out, nvshmem_in, stream=torch_stream_wrapped)    #  nvshmem_alltoall(nvshmem_out, nvshmem_in)
 
             e4.record(torch_stream_)
 
@@ -281,6 +266,8 @@ def _worker_bench_all_to_all(
 
     torch.cuda.set_device(pgi.local_rank)
     device = torch.device("cuda", pgi.local_rank)
+
+    ####################### Old Code #######################
     # torch.distributed.init_process_group(
     #     backend="cpu:gloo,cuda:nccl",
     #     rank=pgi.rank,
@@ -295,10 +282,7 @@ def _worker_bench_all_to_all(
     # torch.distributed.all_reduce(barrier)
 
     # setup_logging(f"[rank{pgi.rank:{len(str(pgi.world_size - 1))}d}] ")
-
-
-    #################################
-
+    ####################### Old Code #######################
 
     dev = Device(pgi.local_rank)
     dev.set_current()
@@ -312,19 +296,6 @@ def _worker_bench_all_to_all(
         world_size=pgi.world_size,
         device_id=device,
     )
-
-
-    # Register the default process group so that C++/CUDA kernels invoked via
-    # pplx_kernels can resolve it (they look it up by the hard-coded name
-    # "default").  Without this, calling AllToAll.intra|internode_create()
-    # raises "Could not resolve the process group registered under the name
-    # default".
-    world_group = torch.distributed.group.WORLD
-    assert world_group is not None, "torch.distributed default group wasn't initialised"
-    torch._C._distributed_c10d._register_process_group("default", world_group)
-
-
-
 
     num_ranks = dist.get_world_size()
     rank_id = dist.get_rank()
@@ -343,23 +314,11 @@ def _worker_bench_all_to_all(
     nvshmem.init(device=dev, uid=broadcast_objects[0], rank=rank_id, nranks=num_ranks, initializer_method="uid")
 
 
-
-
-    #################################
-
-
-
-
-
     ####### ---- TO DELETE ---- #######
     uid = nvshmem_get_unique_id() if pgi.rank == 0 else nvshmem_alloc_empty_unique_id()
     torch.distributed.broadcast(uid, src=0)
     nvshmem_init(uid, pgi.rank, pgi.world_size)
     ####### -------------------- #######
-
-
-
-
 
 
     in_dtype = getattr(torch, in_dtype_str)
