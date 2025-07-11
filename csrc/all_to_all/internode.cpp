@@ -19,8 +19,9 @@ AllToAllInterNode::AllToAllInterNode(
     size_t hiddenDim,
     size_t hiddenDimBytes,
     size_t hiddenDimScaleBytes,
+    // [INTEGRATION] Part 5
     uint64_t* extNumTokensBuffer,
-    uint64_t* extNumDispatchRecvBuffer,         // PART 5
+    uint64_t* extNumDispatchRecvBuffer,
     uint64_t* extCombineSignalBuffer,
     uint64_t* extCombineSyncBuffer,
     std::byte* extXDispatchIn,

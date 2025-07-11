@@ -61,11 +61,11 @@ fptr_t create_internode(
     int64_t hiddenDim,
     int64_t hiddenDimBytes,
     int64_t hiddenDimScaleBytes,
-
+    // [INTEGRATION] Part 3
     at::Tensor numTokensBuffer,
     at::Tensor numDispatchRecvBuffer,
     at::Tensor combineSignalBuffer,
-    at::Tensor combineSyncBuffer,      // PART 3
+    at::Tensor combineSyncBuffer,
     at::Tensor xDispatchIn,
     at::Tensor xDispatchOut,
     at::Tensor xCombineIn,
@@ -359,8 +359,9 @@ void register_all_to_all_ops(torch::Library &m) {
         "  int hidden_dim,"
         "  int hidden_dim_bytes,"
         "  int hidden_dim_scale_bytes,"
-        "  Tensor numTokensBuffer,"     // TODO: WHAT SHOULD THIS TYPE DECLARATION BE?
-        "  Tensor numDispatchRecvBuffer,"        // PART 4
+        // [INTEGRATION] Part 4
+        "  Tensor numTokensBuffer,"
+        "  Tensor numDispatchRecvBuffer,"        
         "  Tensor combineSignalBuffer,"
         "  Tensor combineSyncBuffer,"
         "  Tensor xDispatchIn,"
