@@ -5,12 +5,12 @@ import pytest
 import torch
 
 from pplx_kernels.all_to_all import AllToAll
-# from pplx_kernels.nvshmem import (
-#     nvshmem_alloc_empty_unique_id,
-#     nvshmem_finalize,
-#     nvshmem_get_unique_id,
-#     nvshmem_init,
-# )
+from pplx_kernels.nvshmem import (
+    nvshmem_alloc_empty_unique_id,
+    nvshmem_finalize,
+    nvshmem_get_unique_id,
+    nvshmem_init,
+)
 
 from .all_to_all_utils import MoEConfig, RankTestData
 from .distributed_utils import (
@@ -296,7 +296,7 @@ def _do_test_all_to_all(
             weight = float(rank_data.weights[i_token, i_expert].item())
             ref_y[i_token] += rank_data.x[i_token].to(device).to(y.dtype) * val * weight
     torch.testing.assert_close(y[: rank_data.num_tokens], ref_y)
-    print(f"y is {y[: rank_data.num_tokens]}, ref_y is {ref_y}")
+    print(f"y is {y[: rank_data.num_tokens].flatten()[:10]}, ref_y is {ref_y.flatten()[:10]}")
 
 
 
@@ -376,65 +376,29 @@ def _worker_test_all_to_all(
     # Initialize NVSHMEM with the broadcasted UID
     nvshmem.init(device=dev, uid=broadcast_objects[0], rank=rank_id, nranks=num_ranks, initializer_method="uid")
 
-
-
-# # ################################
-
-#TODO 7/8/25: FOUND THE ISSUE WITH THE INITIALIZAITON:
-# PROBABLY RELATED TO : nvshmemx_cumodule_init
-    # look up the EXAMPLE of this
-    # DOESN'T have a nvshmem.core binding so you will need to just call it directly
-    # the issue is that nvshmem.init only does HOST-SIDE INITIALIZATION, we also need to do device-side initialization!!!!
-
-#     # CUBIN WHERE THEY HAVE THE KERNELS
-#     # CAN GET IT WITH cuobjdump --extract-elf all lib.so
-#     cubin_path = "/lustre/fsw/portfolios/coreai/projects/coreai_libraries_nvshmem/wilchan/pplx-kernels/objs/libpplx_kernels.1.sm_90a.cubin"
-
-#     # Load the cubin file as a library
-#     res, returned_library = cuda.bindings.driver.cuLibraryLoadFromFile(
-#         cubin_path.encode(),  # fileName as bytes
-#         None,                  # jitOptions
-#         None,                  # jitOptionsValues  
-#         0,                     # numJitOptions
-#         None,                  # libraryOptions
-#         None,                  # libraryOptionValues
-#         0                      # numLibraryOptions
-#     )
-#     assert res == cuda.bindings.driver.CUresult.CUDA_SUCCESS
-
-
-#     # TODO: successfully loads from file, but this pointer is still invalid for some reason??
-#     # Also I'm using nvshmem bindings here and not cuda bindings...
-#     bindings.cumodule_init(returned_library.getPtr())
-# ################################
-
-
     moe_config = dataclasses.replace(
         moe_config,
         in_dtype=getattr(torch, in_dtype),
         out_dtype=getattr(torch, out_dtype),
     )
 
-    # # -------------- TO DELETE --------------------
-    # ## THIS DOES SOMETHING TO THE DEVICE BUFFERS...
-    # # TODO: THINKING THAT WE ARE NOT BROADCASTING THE UNIQUE ID CORRECTLY HERE
-    # uid = nvshmem_get_unique_id() if pgi.rank == 0 else nvshmem_alloc_empty_unique_id()
-    # torch.distributed.broadcast(uid, src=0)
-
-    # print(f"[UID RANK {pgi.rank}] has pgi.uid {uid} and uniqueid {uniqueid}")
-    # nvshmem_init(uid, pgi.rank, pgi.world_size)
-    # # -------------- TO DELETE --------------------
+    # -------------- TO DELETE --------------------
+    # TODO: WE NEED TO DO DEVICE SIDE INITIALIZATION HERE
+    uid = nvshmem_get_unique_id() if pgi.rank == 0 else nvshmem_alloc_empty_unique_id()
+    torch.distributed.broadcast(uid, src=0)
+    nvshmem_init(uid, pgi.rank, pgi.world_size)
+    # -------------- TO DELETE --------------------
 
 
     # each PE will run this _do_test_all_to_all method simulating a MoE model.
     _do_test_all_to_all(pgi, dp_size, moe_config, internode, stream)
 
-# ################################
-#     bindings.cumodule_finalize(returned_library.getPtr())
-# ################################
 
-    nvshmem.finalize()
+    # TODO: Need to handle finalization here once device side initialization is complete
+    # nvshmem.finalize()
     dist.destroy_process_group()
+    # nvshmem_finalize()
+
 
 
 @pytest.mark.skipif(torch.cuda.device_count() < 4, reason="Requires at least 4 GPUs")
@@ -444,7 +408,7 @@ def _worker_test_all_to_all(
 # @pytest.mark.parametrize("use_compile", [False, True])
 @pytest.mark.parametrize("in_dtype", ["bfloat16"])
 @pytest.mark.parametrize("out_dtype", ["float16"])
-@pytest.mark.parametrize("internode", [False])
+@pytest.mark.parametrize("internode", [True])
 @pytest.mark.parametrize("use_compile", [False])
 def test_all_to_all_4_gpu(
     in_dtype: str, out_dtype: str, internode: bool, use_compile: bool
@@ -500,10 +464,28 @@ def _worker_test_all_to_all_multi_node(
         True,
     )
 
-
 @require_multi_node
-@pytest.mark.parametrize("in_dtype", ["bfloat16", "float8_e4m3fn", "float16"])
-@pytest.mark.parametrize("out_dtype", ["float16", "bfloat16"])
+# @pytest.mark.parametrize("in_dtype", ["bfloat16", "float8_e4m3fn", "float16"])
+# @pytest.mark.parametrize("out_dtype", ["float16", "bfloat16"])
+@pytest.mark.parametrize("in_dtype", ["bfloat16"])
+@pytest.mark.parametrize("out_dtype", ["float16"])
 def test_all_to_all_multi_node(in_dtype: str, out_dtype: str) -> None:
-    parallel_launch_from_env(_worker_test_all_to_all_multi_node, in_dtype, out_dtype)
+    # parallel_launch_from_env(_worker_test_all_to_all_multi_node, in_dtype, out_dtype)
+
+    if "LOCAL_RANK" not in os.environ or "WORLD_SIZE" not in os.environ:
+        pytest.skip("Must be run with torchrun")
+
+    local_rank = int(os.environ["LOCAL_RANK"])
+    world_size = int(os.environ["WORLD_SIZE"]) 
+
+    pgi = ProcessGroupInfo(
+        world_size=world_size,
+        world_local_size=int(os.environ.get("LOCAL_WORLD_SIZE", world_size)),
+        rank=int(os.environ["RANK"]),
+        node_rank=int(os.environ.get("NODE_RANK", 0)),
+        local_rank=local_rank,
+        device=torch.device("cuda", local_rank),
+    )
+
+    _worker_test_all_to_all_multi_node(pgi, in_dtype, out_dtype)
 

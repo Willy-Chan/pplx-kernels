@@ -159,99 +159,99 @@ __global__ __launch_bounds__(NUM_WARPS * 32, 1) void dispatchKernel(
             const unsigned loc = group * maxNumTokens + index;
 
             std::byte *destPointer = xBufferOut + loc * tokenStride;
-            // nvshmemx_putmem_signal_nbi_warp(
-            //     destPointer,
-            //     xInPtr,
-            //     tokenStride,
-            //     &numRecvBuffer[group],
-            //     1,
-            //     NVSHMEM_SIGNAL_ADD,
-            //     dstRank
-            // );
+            nvshmemx_putmem_signal_nbi_warp(
+                destPointer,
+                xInPtr,
+                tokenStride,
+                &numRecvBuffer[group],
+                1,
+                NVSHMEM_SIGNAL_ADD,
+                dstRank
+            );
           }
         }
       }
     }
 
-//     if (DO_RECV) {
-//       cooperative_groups::this_grid().sync();
-//     }
-//   }
+    if (DO_RECV) {
+      cooperative_groups::this_grid().sync();
+    }
+  }
 
-//   if constexpr (DO_RECV) {
-//     // Wait for the token counts to be sent.
-//     const size_t numExpertsAndGroups = numLocalExperts * numDPGroups;
-//     const size_t expertsPerBlock = ceil_div<size_t>(numExpertsAndGroups, gridDim.x);
-//     uint32_t *sharedExpert = reinterpret_cast<uint32_t *>(sharedMemory);
-//     uint32_t *sharedToken = sharedExpert + expertsPerBlock;
+  if constexpr (DO_RECV) {
+    // Wait for the token counts to be sent.
+    const size_t numExpertsAndGroups = numLocalExperts * numDPGroups;
+    const size_t expertsPerBlock = ceil_div<size_t>(numExpertsAndGroups, gridDim.x);
+    uint32_t *sharedExpert = reinterpret_cast<uint32_t *>(sharedMemory);
+    uint32_t *sharedToken = sharedExpert + expertsPerBlock;
 
-//     unsigned firstGroup = blockIdx.x * expertsPerBlock;
-//     unsigned lastGroup = std::min(firstGroup + expertsPerBlock, numExpertsAndGroups);
+    unsigned firstGroup = blockIdx.x * expertsPerBlock;
+    unsigned lastGroup = std::min(firstGroup + expertsPerBlock, numExpertsAndGroups);
 
-//     for (unsigned group = firstGroup + threadIdx.x; group < lastGroup;
-//          group += gridDim.x * expertsPerBlock) {
-//       const uint32_t expert = group / numDPGroups;
+    for (unsigned group = firstGroup + threadIdx.x; group < lastGroup;
+         group += gridDim.x * expertsPerBlock) {
+      const uint32_t expert = group / numDPGroups;
 
-//       // Fetch the token count per DP, which is non-zero to indicate receipt.
-//       // Afterwards, wait for exactly that many tokens to be sent to us.
-//       nvshmem_uint64_wait_until(&numTokensBuffer[group], NVSHMEM_CMP_NE, 0);
-//       size_t numTokens = numTokensBuffer[group] - 1;
-//       nvshmem_uint64_wait_until(&numRecvBuffer[group], NVSHMEM_CMP_EQ, numTokens);
+      // Fetch the token count per DP, which is non-zero to indicate receipt.
+      // Afterwards, wait for exactly that many tokens to be sent to us.
+      nvshmem_uint64_wait_until(&numTokensBuffer[group], NVSHMEM_CMP_NE, 0);
+      size_t numTokens = numTokensBuffer[group] - 1;
+      nvshmem_uint64_wait_until(&numRecvBuffer[group], NVSHMEM_CMP_EQ, numTokens);
 
-//       numTokensPerDP[group] = numTokens;
-//       numTokensBuffer[group] = 0;
-//       numRecvBuffer[group] = 0;
-//       sharedExpert[group - firstGroup] = atomicAdd(&outNumTokensPerExpert[expert], numTokens);
-//       sharedToken[group - firstGroup] = atomicAdd(&globalTokenIndex, numTokens);
-//     }
+      numTokensPerDP[group] = numTokens;
+      numTokensBuffer[group] = 0;
+      numRecvBuffer[group] = 0;
+      sharedExpert[group - firstGroup] = atomicAdd(&outNumTokensPerExpert[expert], numTokens);
+      sharedToken[group - firstGroup] = atomicAdd(&globalTokenIndex, numTokens);
+    }
 
-//     __syncthreads();
+    __syncthreads();
 
-//     for (unsigned group = firstGroup; group < lastGroup; group++) {
-//       const uint32_t expert = group / numDPGroups;
-//       const uint32_t dp = group % numDPGroups;
-//       const size_t numTokens = numTokensPerDP[group];
-//       auto expertStart = sharedExpert[group - firstGroup];
-//       auto tokenStart = sharedToken[group - firstGroup];
+    for (unsigned group = firstGroup; group < lastGroup; group++) {
+      const uint32_t expert = group / numDPGroups;
+      const uint32_t dp = group % numDPGroups;
+      const size_t numTokens = numTokensPerDP[group];
+      auto expertStart = sharedExpert[group - firstGroup];
+      auto tokenStart = sharedToken[group - firstGroup];
 
-//       for (unsigned i = threadIdx.x; i < numTokens; i += blockDim.x) {
-//         std::byte *xTokenBuffer = xBufferOut + (group * maxNumTokens + i) * tokenStride;
-//         uint32_t token = tokenStart + i;
-//         sourceIndex[token] = *((uint32_t *)(xTokenBuffer + tokenDim));
-//         sourceExpert[token] = expert;
-//         sourceOffset[token] = expertStart + i;
-//         sourceGroup[token] = dp;
-//         sourceToken[token] = i;
-//       }
-//     }
+      for (unsigned i = threadIdx.x; i < numTokens; i += blockDim.x) {
+        std::byte *xTokenBuffer = xBufferOut + (group * maxNumTokens + i) * tokenStride;
+        uint32_t token = tokenStart + i;
+        sourceIndex[token] = *((uint32_t *)(xTokenBuffer + tokenDim));
+        sourceExpert[token] = expert;
+        sourceOffset[token] = expertStart + i;
+        sourceGroup[token] = dp;
+        sourceToken[token] = i;
+      }
+    }
 
-//     cooperative_groups::this_grid().sync();
-//     unsigned numRecvTokens = globalTokenIndex;
+    cooperative_groups::this_grid().sync();
+    unsigned numRecvTokens = globalTokenIndex;
 
-//     for (unsigned i = blockIdx.x; i < numRecvTokens; i += gridDim.x) {
-//       auto expertLoc = sourceOffset[i];
-//       auto expert = sourceExpert[i];
-//       auto group = expert * numDPGroups + sourceGroup[i];
+    for (unsigned i = blockIdx.x; i < numRecvTokens; i += gridDim.x) {
+      auto expertLoc = sourceOffset[i];
+      auto expert = sourceExpert[i];
+      auto group = expert * numDPGroups + sourceGroup[i];
 
-//       std::byte *xTokenBuffer = xBufferOut + (group * maxNumTokens + sourceToken[i]) * tokenStride;
-//       std::byte *dstXExpert = expertX + expert * expertXStrideRow;
-//       float *dstXScaleExpert = expertXScale + expert * expertXScaleStrideCol;
+      std::byte *xTokenBuffer = xBufferOut + (group * maxNumTokens + sourceToken[i]) * tokenStride;
+      std::byte *dstXExpert = expertX + expert * expertXStrideRow;
+      float *dstXScaleExpert = expertXScale + expert * expertXScaleStrideCol;
 
-//       const int4 *srcX = (int4 *)xTokenBuffer;
-//       int4 *dstX = (int4 *)(dstXExpert + expertLoc * expertXStrideElem);
-//       for (unsigned k = threadIdx.x; k * sizeof(int4) < hiddenDim; k += blockDim.x) {
-//         dstX[k] = srcX[k];
-//       }
+      const int4 *srcX = (int4 *)xTokenBuffer;
+      int4 *dstX = (int4 *)(dstXExpert + expertLoc * expertXStrideElem);
+      for (unsigned k = threadIdx.x; k * sizeof(int4) < hiddenDim; k += blockDim.x) {
+        dstX[k] = srcX[k];
+      }
 
-//       // Copy the scale to the output buffer.
-//       if (hiddenDimScale > 0) {
-//         const float *srcXScale = (float *)(xTokenBuffer + hiddenDim);
-//         float *dstXScale = dstXScaleExpert + expertLoc * expertXScaleStrideRow;
-//         for (unsigned k = threadIdx.x; k * sizeof(float) < hiddenDimScale; k += blockDim.x) {
-//           dstXScale[k * expertXScaleStrideElem] = srcXScale[k];
-//         }
-//       }
-//     }
+      // Copy the scale to the output buffer.
+      if (hiddenDimScale > 0) {
+        const float *srcXScale = (float *)(xTokenBuffer + hiddenDim);
+        float *dstXScale = dstXScaleExpert + expertLoc * expertXScaleStrideRow;
+        for (unsigned k = threadIdx.x; k * sizeof(float) < hiddenDimScale; k += blockDim.x) {
+          dstXScale[k * expertXScaleStrideElem] = srcXScale[k];
+        }
+      }
+    }
   }
 }
 

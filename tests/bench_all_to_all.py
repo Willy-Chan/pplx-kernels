@@ -313,6 +313,19 @@ def _worker_bench_all_to_all(
         device_id=device,
     )
 
+
+    # Register the default process group so that C++/CUDA kernels invoked via
+    # pplx_kernels can resolve it (they look it up by the hard-coded name
+    # "default").  Without this, calling AllToAll.intra|internode_create()
+    # raises "Could not resolve the process group registered under the name
+    # default".
+    world_group = torch.distributed.group.WORLD
+    assert world_group is not None, "torch.distributed default group wasn't initialised"
+    torch._C._distributed_c10d._register_process_group("default", world_group)
+
+
+
+
     num_ranks = dist.get_world_size()
     rank_id = dist.get_rank()
 
