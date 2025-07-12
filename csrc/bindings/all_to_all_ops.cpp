@@ -10,6 +10,40 @@
 #include <torch/csrc/distributed/c10d/GroupRegistry.hpp>
 #include <torch/csrc/distributed/c10d/ProcessGroup.hpp>
 
+
+
+// TODO: NEW LIBS FOR DEVICE SIDE INITIALIZATION
+#include <stdio.h>
+#include <algorithm>
+#include <cuda_runtime.h>
+
+#ifdef __clang_llvm_bitcode_lib__
+#define assert(...)
+#include "nvshmem.h"
+#endif
+
+#include "non_abi/nvshmem_build_options.h"
+#include "non_abi/nvshmem_version.h"
+#include "non_abi/nvshmemx_error.h"
+#include "internal/device/nvshmemi_device.h"
+#include "non_abi/device/pt-to-pt/proxy_device.cuh"
+#include "device_host/nvshmem_common.cuh"
+#include "device_host/nvshmem_types.h"
+
+
+static int _nvshmemi_init_device_only_state() {
+  int status = 0;
+  status = nvshmemi_setup_collective_launch();
+  NVSHMEMI_NZ_ERROR_JMP(status, NVSHMEMX_ERROR_INTERNAL, out,
+                        "_nvshmemi_init_device_only_state failed\n");
+  nvshmemi_device_only_state.is_initialized = true;
+
+out:
+  return status;
+}
+///////////////////////////////////////
+
+
 using namespace pplx;
 
 using fptr_t = int64_t;
@@ -72,6 +106,23 @@ fptr_t create_internode(
     at::Tensor xCombineOut
 ) {
 
+
+  int status;
+    // TODO: NEED TO DO THE INTIIALIZATION HERE:
+    if (nvshmemid_init_status() > NVSHMEM_STATUS_IS_BOOTSTRAPPED) {
+      status = _nvshmemi_init_device_only_state();
+      // NVSHMEMI_NZ_ERROR_JMP(status, NVSHMEMX_ERROR_INTERNAL, out,
+      //                       "nvshmem_internal_init_thread failed at init_device_only_state.\n");
+
+      status = cudaGetDevice(&nvshmemi_device_only_state.cuda_device_id);
+      if (status) {
+          NVSHMEMI_ERROR_EXIT("nvshmem cuda device query failed, exiting \n");
+      }
+  }
+
+
+
+  // Check the sizes in C++!!!!
   auto *ptr = new AllToAllInterNode(
       maxNumTokens,
       numExperts,
@@ -83,10 +134,10 @@ fptr_t create_internode(
       hiddenDimBytes,
       hiddenDimScaleBytes,
 
-      reinterpret_cast<uint64_t*>(numTokensBuffer.data_ptr()),    // TODO: REINTERPRET-CASTING int64 TO uint64 IS THIS OK???
-      reinterpret_cast<uint64_t*>(numDispatchRecvBuffer.data_ptr()),
-      reinterpret_cast<uint64_t*>(combineSignalBuffer.data_ptr()),
-      reinterpret_cast<uint64_t*>(combineSyncBuffer.data_ptr()),
+      reinterpret_cast<intptr_t>(numTokensBuffer.data_ptr()),    // TODO: REINTERPRET-CASTING int64 TO uint64 IS THIS OK???
+      reinterpret_cast<intptr_t>(numDispatchRecvBuffer.data_ptr()),
+      reinterpret_cast<intptr_t>(combineSignalBuffer.data_ptr()),
+      reinterpret_cast<intptr_t>(combineSyncBuffer.data_ptr()),
       reinterpret_cast<std::byte*>(xDispatchIn.data_ptr()),
       reinterpret_cast<std::byte*>(xDispatchOut.data_ptr()),
       reinterpret_cast<std::byte*>(xCombineIn.data_ptr()),
