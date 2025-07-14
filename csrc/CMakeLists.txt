@@ -21,7 +21,17 @@ include(FetchContent)
 find_package(CUDAToolkit REQUIRED)  # Modern replacement for find_package(CUDA)
 find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
 find_package(Torch REQUIRED)
-find_package(NVSHMEM REQUIRED)
+# find_package(NVSHMEM REQUIRED)
+
+set(NVSHMEM_PREFIX /lustre/fsw/portfolios/coreai/projects/coreai_libraries_nvshmem/wilchan/repo/nvshmem_install)
+
+
+find_package(NVSHMEM REQUIRED HINTS "${NVSHMEM_PREFIX}/lib/cmake/nvshmem")
+
+# message(FATAL_ERROR "${NVSHMEM_PREFIX}")
+
+add_library(nvshmem_host ALIAS nvshmem::nvshmem_host)
+
 
 if(WITH_TESTS)
     enable_testing()
@@ -33,6 +43,8 @@ endif()
 # Create imported target for PyTorch
 add_library(torch_imported INTERFACE)
 add_library(torch::py_limited ALIAS torch_imported)
+
+
 target_include_directories(torch_imported SYSTEM INTERFACE ${TORCH_INCLUDE_DIRS})
 # NOTE(lequn): We don't link against all ${TORCH_LIBRARIES} because we use py_limited_api.
 # See: https://github.com/pytorch/pytorch/blob/9017becf1d895999a1c819c9d35b8139c090e7a9/torch/utils/cpp_extension.py#L1256-L1270
@@ -68,8 +80,8 @@ target_link_libraries(pplx_kernels PUBLIC
     Python::Module
     CUDA::cuda_driver
     CUDA::cudart
-    nvshmem::nvshmem
-    nvshmem::nvshmem_bootstrap_uid
+    # nvshmem::nvshmem
+    # nvshmem::nvshmem_bootstrap_uid
 )
 set_target_properties(pplx_kernels PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../src/pplx_kernels
