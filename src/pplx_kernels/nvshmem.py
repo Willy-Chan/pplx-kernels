@@ -3,58 +3,34 @@
 from collections.abc import Sequence
 
 import torch
+import torch.distributed as dist
 
-from .ops import _ops
+import nvshmem.core as nvshmem
 
 ###### NVSHMEM ######
+def nvshmem_init(global_rank: int, local_rank: int, world_size: int, device, uid=None) -> None:
+    uniqueid = nvshmem.get_unique_id(empty=True)
+    if local_rank == 0:
+        uniqueid = nvshmem.get_unique_id()
+        broadcast_objects = [uniqueid]
+    else:
+        broadcast_objects = [None]
+
+    dist.broadcast_object_list(broadcast_objects, src=0)
+    dist.barrier()
+
+    nvshmem.init(device=device, uid=broadcast_objects[0], rank=global_rank, nranks=world_size, initializer_method="uid")
+    
+
+# This stream wrapper returns the format required by CUDA Python. This workaround will be removed when nvshmem4py supports Torch stream interoperability.
+# For more information see: https://nvidia.github.io/cuda-python/cuda-core/latest/interoperability.html#cuda-stream-protocol
+class PyTorchStreamWrapper:
+    def __init__(self, pt_stream):
+        self.pt_stream = pt_stream
+        self.handle = pt_stream.cuda_stream
+
+    def __cuda_stream__(self):
+        stream_id = self.pt_stream.cuda_stream
+        return (0, stream_id)
 
 
-def nvshmem_get_unique_id() -> torch.Tensor:
-    return _ops.nvshmem_get_unique_id()
-
-
-def nvshmem_unique_id_size() -> int:
-    return _ops.nvshmem_unique_id_size()
-
-
-def nvshmem_alloc_empty_unique_id() -> torch.Tensor:
-    return torch.zeros(nvshmem_unique_id_size(), dtype=torch.uint8, device="cpu")
-
-
-def nvshmem_init(uid: torch.Tensor, rank: int, world_size: int) -> int:
-    status = _ops.nvshmem_init(uid, rank, world_size)
-    torch.cuda.synchronize()
-    return status
-
-
-def nvshmem_alltoall(dest: torch.Tensor, source: torch.Tensor) -> None:
-    return _ops.nvshmem_alltoall(dest, source)
-
-
-def nvshmem_finalize() -> None:
-    torch.cuda.synchronize()
-    _ops.nvshmem_finalize()
-
-
-def nvshmem_my_pe() -> int:
-    return _ops.nvshmem_my_pe()
-
-
-def nvshmem_n_pes() -> int:
-    return _ops.nvshmem_n_pes()
-
-
-def nvshmem_malloc(
-    shape: Sequence[int],
-    dtype: torch.dtype,
-    device: torch.device,
-) -> torch.Tensor:
-    return _ops.nvshmem_malloc(shape, dtype, device)
-
-
-def nvshmem_barrier_all() -> None:
-    _ops.nvshmem_barrier_all()
-
-
-def nvshmem_barrier_all_on_current_stream() -> None:
-    _ops.nvshmem_barrier_all_on_current_stream()

@@ -1,18 +1,6 @@
 import pytest
 import torch
 
-from pplx_kernels.nvshmem import (
-    nvshmem_alloc_empty_unique_id,
-    nvshmem_alltoall,
-    nvshmem_barrier_all_on_current_stream,
-    nvshmem_finalize,
-    nvshmem_get_unique_id,
-    nvshmem_init,
-    nvshmem_malloc,
-    nvshmem_my_pe,
-    nvshmem_n_pes,
-)
-
 from .distributed_utils import (
     ProcessGroupInfo,
     parallel_launch,
@@ -20,22 +8,61 @@ from .distributed_utils import (
     require_multi_node,
 )
 
+from cuda.core.experimental import Device
+import nvshmem.core as nvshmem
+import torch.distributed as dist
+from nvshmem.core import Teams
+from pplx_kernels import nvshmem_init, PyTorchStreamWrapper
 
 def test_nvshmem_1_gpu() -> None:
-    uid = nvshmem_get_unique_id()
-    nvshmem_init(uid, 0, 1)
-    assert nvshmem_my_pe() == 0
-    assert nvshmem_n_pes() == 1
-    nvshmem_finalize()
+
+    local_rank = 0
+    world_size = 1
+
+    torch.cuda.set_device(local_rank)
+    device = torch.device("cuda", local_rank)
+    dev = Device(local_rank)
+    dev.set_current()
+
+    uniqueid = nvshmem.get_unique_id()
+    nvshmem.init(device=dev, uid=uniqueid, rank=0, nranks=1, initializer_method="uid")
+
+    # Check host initialization status
+    test_script_init_status = nvshmem.direct.init_status()
+    if test_script_init_status < 2 and local_rank == 0:
+        logger.warning(
+            "NVSHMEM hostlib initialization incomplete - status: %d (rank: %d, local_rank: %d)",
+            test_script_init_status, rank_id, local_rank
+        )
+
+    assert nvshmem.my_pe() == 0
+    assert nvshmem.n_pes() == 1
+
+    nvshmem.finalize()
+    
 
 
 def _worker_test_nvshmem_4_gpu(pgi: ProcessGroupInfo) -> None:
-    uid = nvshmem_get_unique_id() if pgi.rank == 0 else nvshmem_alloc_empty_unique_id()
-    torch.distributed.broadcast(uid, src=0)
-    nvshmem_init(uid, pgi.rank, pgi.world_size)
-    assert nvshmem_my_pe() == pgi.rank
-    assert nvshmem_n_pes() == pgi.world_size
-    nvshmem_finalize()
+    local_rank = dist.get_rank()
+    world_size = dist.get_world_size()
+
+    dev = Device(local_rank)
+    dev.set_current()
+
+    nvshmem_init(global_rank=pgi.rank, local_rank=local_rank, world_size=world_size, device=dev)
+
+    # Check host initialization status
+    test_script_init_status = nvshmem.direct.init_status()
+    if test_script_init_status < 2 and local_rank == 0:
+        logger.warning(
+            "NVSHMEM hostlib initialization incomplete - status: %d (rank: %d, local_rank: %d)",
+            test_script_init_status, pgi.rank, local_rank
+        )
+
+    assert nvshmem.my_pe() == pgi.rank
+    assert nvshmem.n_pes() == pgi.world_size
+
+    nvshmem.finalize()
 
 
 @pytest.mark.skipif(torch.cuda.device_count() < 4, reason="Requires at least 4 GPUs")
@@ -44,26 +71,43 @@ def test_nvshmem_4_gpu() -> None:
 
 
 def _worker_test_all_to_all(pgi: ProcessGroupInfo) -> None:
-    uid = nvshmem_get_unique_id() if pgi.rank == 0 else nvshmem_alloc_empty_unique_id()
-    torch.distributed.broadcast(uid, src=0)
-    nvshmem_init(uid, pgi.rank, pgi.world_size)
-    try:
-        t_in = nvshmem_malloc([pgi.world_size], dtype=torch.int32, device=pgi.device)
-        t_in.copy_(
-            torch.full([pgi.world_size], pgi.rank, dtype=torch.int32, device=pgi.device)
+    local_rank = dist.get_rank()
+    world_size = dist.get_world_size()
+
+    dev = Device(local_rank)
+    dev.set_current()
+    stream = PyTorchStreamWrapper(torch.cuda.current_stream())
+    
+    num_ranks = dist.get_world_size()
+    rank_id = dist.get_rank()
+
+    nvshmem_init(global_rank=rank_id, local_rank=local_rank, world_size=num_ranks, device=dev)
+
+    # Check NVSHMEM host initialization status
+    test_script_init_status = nvshmem.direct.init_status()
+    if test_script_init_status < 2 and local_rank == 0:
+        logger.warning(
+            "NVSHMEM hostlib initialization incomplete - status: %d (rank: %d, local_rank: %d)",
+            test_script_init_status, rank_id, local_rank
         )
 
-        t_out = nvshmem_malloc([pgi.world_size], dtype=torch.int32, device=pgi.device)
+    # all-to-all test
+    try:
+        # Allocate a PyTorch tensor backed by NVSHMEM symmetric memory
+        t_in = nvshmem.tensor( (pgi.world_size,), dtype=torch.int32 ).fill_(pgi.rank)
+        t_out = nvshmem.tensor( (pgi.world_size,), dtype=torch.int32 )
 
-        nvshmem_alltoall(t_out, t_in)
-        nvshmem_barrier_all_on_current_stream()
+        team = Teams.TEAM_WORLD
+        nvshmem.collective.alltoall(team, t_out, t_in, stream=stream)
+
+        nvshmem.collective.barrier(team, stream=stream)
         torch.cuda.synchronize()
 
         assert t_out.tolist() == list(range(pgi.world_size))
     finally:
-        del t_in
-        del t_out
-        nvshmem_finalize()
+        nvshmem.free_tensor(t_in)
+        nvshmem.free_tensor(t_out)
+        nvshmem.finalize()
 
 
 @pytest.mark.skipif(torch.cuda.device_count() < 4, reason="Requires at least 4 GPUs")
