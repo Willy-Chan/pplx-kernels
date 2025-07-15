@@ -5,12 +5,12 @@ import pytest
 import torch
 
 from pplx_kernels.all_to_all import AllToAll
-from pplx_kernels.nvshmem import (
-    nvshmem_alloc_empty_unique_id,
-    nvshmem_finalize,
-    nvshmem_get_unique_id,
-    nvshmem_init,
-)
+# from pplx_kernels.nvshmem import (
+#     nvshmem_alloc_empty_unique_id,
+#     nvshmem_finalize,
+#     nvshmem_get_unique_id,
+#     nvshmem_init,
+# )
 
 from .all_to_all_utils import MoEConfig, RankTestData
 from .distributed_utils import (
@@ -20,16 +20,13 @@ from .distributed_utils import (
     require_multi_node,
 )
 
-from cuda.core.experimental import Device, system, Program, ProgramOptions
-import nvshmem.core as nvshmem
-import numpy as np
+# [NEW] New imports
 import os
+import numpy as np
+from cuda.core.experimental import Device, system, Program, ProgramOptions
 import torch.distributed as dist
+import nvshmem.core as nvshmem
 from nvshmem.core import Teams
-
-# Need to import the bindings for device-side initialization (nvshmem4py.init only does host-side initialization)
-import cuda.bindings
-import nvshmem.bindings as bindings
 
 
 logger = logging.getLogger(__name__)
@@ -298,8 +295,6 @@ def _do_test_all_to_all(
     torch.testing.assert_close(y[: rank_data.num_tokens], ref_y)
     print(f"y is {y[: rank_data.num_tokens].flatten()[:10]}, ref_y is {ref_y.flatten()[:10]}")
 
-
-
 def _worker_test_all_to_all(
     pgi: ProcessGroupInfo,
     dp_size: int,
@@ -322,10 +317,6 @@ def _worker_test_all_to_all(
     # nvshmem_finalize()
     ###############################################################
 
-
-    # # TODO: For clarification, we are JUST replacing the nvshmem python calls they have, NOT the custom ata.dispatch() and ata.combine() high-performance kernels that they have made. Need to replace nvshmem_malloc!
-    # First, we uid-bootstrap nvshmem with torchrun
-    # PGI given parameters that specify the communication group
     local_rank = int(os.environ['LOCAL_RANK'])
     world_size = int(os.environ['WORLD_SIZE'])
 
@@ -339,8 +330,6 @@ def _worker_test_all_to_all(
     global stream
     stream = dev.create_stream()
 
-    
-
     # Set up torch.distributed (dist) backend
     dist.init_process_group(
         backend="cpu:gloo,cuda:nccl",
@@ -348,15 +337,6 @@ def _worker_test_all_to_all(
         world_size=world_size,
         device_id=device
     )
-
-    # Register the default process group so that C++/CUDA kernels invoked via
-    # pplx_kernels can resolve it (they look it up by the hard-coded name
-    # "default").  Without this, calling AllToAll.intra/internode_create()
-    # raises "Could not resolve the process group registered under the name
-    # default".
-    world_group = torch.distributed.group.WORLD
-    assert world_group is not None, "torch.distributed default group wasn't initialised"
-    torch._C._distributed_c10d._register_process_group("default", world_group)
 
     num_ranks = dist.get_world_size()
     rank_id = dist.get_rank()
@@ -369,7 +349,6 @@ def _worker_test_all_to_all(
     else:
         broadcast_objects = [None]
 
-
     # Broadcast the UID from rank 0 to all other ranks
     dist.broadcast_object_list(broadcast_objects, src=0)
     dist.barrier()
@@ -377,41 +356,35 @@ def _worker_test_all_to_all(
     # Initialize NVSHMEM with the broadcasted UID
     nvshmem.init(device=dev, uid=broadcast_objects[0], rank=rank_id, nranks=num_ranks, initializer_method="uid")
 
-
-
     moe_config = dataclasses.replace(
         moe_config,
         in_dtype=getattr(torch, in_dtype),
         out_dtype=getattr(torch, out_dtype),
     )
 
-    # -------------- TO DELETE --------------------
-    # TODO: WE NEED TO DO DEVICE SIDE INITIALIZATION HERE
-    uid = nvshmem_get_unique_id() if pgi.rank == 0 else nvshmem_alloc_empty_unique_id()
-    torch.distributed.broadcast(uid, src=0)
-    nvshmem_init(uid, pgi.rank, pgi.world_size)
-    # -------------- TO DELETE --------------------
+    # # -------------- TO DELETE --------------------
+    # # TODO: WE NEED TO DO DEVICE SIDE INITIALIZATION HERE
+    # uid = nvshmem_get_unique_id() if pgi.rank == 0 else nvshmem_alloc_empty_unique_id()
+    # torch.distributed.broadcast(uid, src=0)
+    # nvshmem_init(uid, pgi.rank, pgi.world_size)
+    # # -------------- TO DELETE --------------------
 
-    # team = Teams.TEAM_WORLD
-    # nvshmem.barrier(team, stream=stream)
-    # stream.sync()
-
-    status = nvshmem.direct.init_status()
-    print(f"PYTHON STATUS: {status}")
+    # Check hostlib initialization
+    test_script_init_status = nvshmem.direct.init_status()
+    if test_script_init_status < 2 and local_rank == 0:
+        print(f"Nvshmem.core hostlib_init_attr did not initialize, has status {test_script_init_status}")
 
     nvshmem.collective.barrier(Teams.TEAM_WORLD, stream=stream)
     dev.sync()
+    stream.sync()
 
     # each PE will run this _do_test_all_to_all method simulating a MoE model.
     _do_test_all_to_all(pgi, dp_size, moe_config, internode, stream)
 
 
-    # TODO: Need to handle finalization here once device side initialization is complete
     # nvshmem.finalize()
     dist.destroy_process_group()
     # nvshmem_finalize()
-
-
 
 @pytest.mark.skipif(torch.cuda.device_count() < 4, reason="Requires at least 4 GPUs")
 # @pytest.mark.parametrize("in_dtype", ["bfloat16", "float8_e4m3fn", "float16"])
@@ -475,10 +448,6 @@ def _worker_test_all_to_all_multi_node(
         medium_moe,
         True,
     )
-
-
-
-# TODO: MAKE THIS WORK WITH MULTINODE ENVIRONMENT?
 
 @require_multi_node
 # @pytest.mark.parametrize("in_dtype", ["bfloat16", "float8_e4m3fn", "float16"])

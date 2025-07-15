@@ -7,6 +7,15 @@
 #include "core/device_utils.cuh"
 #include "core/utils.h"
 
+#define NVSHMEM_CHECK(stmt)                                                  \
+    do {                                                                     \
+        int result = (stmt);                                                 \
+        if (0 != result) {                                                   \
+            fprintf(stderr, "[%s:%d] NVSHMEM failed\n", __FILE__, __LINE__); \
+            exit(1);                                                         \
+        }                                                                    \
+    } while (0)
+
 using namespace pplx;
 
 namespace {
@@ -319,6 +328,14 @@ void AllToAllInterNode::dispatch(
       &xDispatchOut,
   };
 
+  // Needed, or else will get a cuda illegal memory error when trying to reference NVSHMEM memory.
+  nvshmem_init();
+  int mypeHost = nvshmem_my_pe();
+  int npesHost = nvshmem_n_pes();
+  printf("[INTER-DISPATCH.cu] mypeHost = %d, npesHost = %d\n", mypeHost, npesHost);
+  nvshmemx_barrier_all_on_stream(stream);
+
+
   nvtxRangePush("dispatch");
   switch (splitMode) {
   case SplitMode::SEND:
@@ -332,7 +349,8 @@ void AllToAllInterNode::dispatch(
     ));
     break;
   case SplitMode::RECV:
-    CUDACHECK(cudaLaunchCooperativeKernel(
+    // CUDACHECK(cudaLaunchCooperativeKernel(
+    NVSHMEM_CHECK(nvshmemx_collective_launch(
         (void *)&dispatchKernel<NUM_WARPS, false, true>,
         dimGrid,
         dimBlock,
@@ -342,7 +360,8 @@ void AllToAllInterNode::dispatch(
     ));
     break;
   case SplitMode::NONE:
-    CUDACHECK(cudaLaunchCooperativeKernel(
+    // CUDACHECK(cudaLaunchCooperativeKernel(
+    NVSHMEM_CHECK(nvshmemx_collective_launch(
         (void *)&dispatchKernel<NUM_WARPS, true, true>,
         dimGrid,
         dimBlock,
