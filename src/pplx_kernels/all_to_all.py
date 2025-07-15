@@ -5,10 +5,10 @@ from typing import Any
 
 import torch
 
-from .ops import _ops
-
 import nvshmem.core as nvshmem
 import ctypes
+
+from .ops import _ops
 
 
 class AllToAll:
@@ -33,6 +33,8 @@ class AllToAll:
         self._dispatch_fn = dispatch_fn
         self._has_scales = has_scales
 
+        # TODO: Added these extra attributes because we need a handle to the nvshmem4py device tensors, 
+        # so that way we can free them when calling destroy()
         self.numTokensBuffer = numTokensBuffer
         self.numDispatchRecvBuffer = numDispatchRecvBuffer
         self.combineSignalBuffer = combineSignalBuffer
@@ -56,6 +58,7 @@ class AllToAll:
             nvshmem.free_tensor(self.xDispatchOut)
             nvshmem.free_tensor(self.xCombineIn)
             nvshmem.free_tensor(self.xCombineOut)
+
 
     def dispatch(
         self,
@@ -147,7 +150,7 @@ class AllToAll:
             hidden_dim,
             hidden_dim_bytes,
             hidden_dim_scale_bytes,
-            group_name,
+            group_name
         )
         assert ptr != 0
 
@@ -176,13 +179,12 @@ class AllToAll:
 
         has_scales = hidden_dim_scale_bytes > 0
 
+        # TODO: verify these values, they seem to do floor division in the C++ code?
+        # numLocalExperts = num_experts // world_size
+        # numDPGroups = world_size // dp_size
 
-        # >>>>>>>>>>>>>>>>>>> NVSHMEM4PY TENSOR ALLOCATIONS >>>>>>>>>>>>>>>>>>>>>
         def ceil_div(x: int, y: int) -> int:
             return (x + y - 1) // y
-        def round_up(x: int, y: int) -> int:
-            """round up x to nearest multiple of y"""
-            return ((x + y - 1) // y) * y
 
         numLocalExperts = ceil_div(num_experts, world_size)
         numDPGroups     = ceil_div(world_size,  dp_size)
@@ -196,6 +198,10 @@ class AllToAll:
         combineSyncBuffer = nvshmem.interop.torch.tensor((world_size,), dtype=torch.int64)
         combineSyncBuffer[:] = 0
 
+        def round_up(x: int, y: int) -> int:
+            """Round up x to the nearest multiple of y."""
+            return ((x + y - 1) // y) * y
+
         # [INTEGRATION] Part 1
         per_token_bytes = round_up(hidden_dim_bytes + hidden_dim_scale_bytes + 4, 16)  # TODO: + 4 for uint32_t
         max_batch_tokens = numLocalExperts * numDPGroups * max_num_tokens
@@ -205,8 +211,6 @@ class AllToAll:
 
         xCombineIn = nvshmem.interop.torch.tensor( (max_batch_tokens * hidden_dim,), dtype=torch.float32 )
         xCombineOut = nvshmem.interop.torch.tensor( (max_num_tokens * num_experts * hidden_dim,), dtype=torch.float32 )
-        # >>>>>>>>>>>>>>>>>>> NVSHMEM4PY TENSOR ALLOCATIONS >>>>>>>>>>>>>>>>>>>>>
-        
 
         ptr = _ops.all_to_all_internode_create(
             max_num_tokens,
@@ -235,4 +239,13 @@ class AllToAll:
             _ops.all_to_all_internode_combine,
             _ops.all_to_all_internode_dispatch,
             has_scales,
+            numTokensBuffer = numTokensBuffer,
+            numDispatchRecvBuffer = numDispatchRecvBuffer,
+            combineSignalBuffer = combineSignalBuffer,
+            combineSyncBuffer = combineSyncBuffer,
+            xDispatchIn = xDispatchIn,
+            xDispatchOut = xDispatchOut,
+            xCombineIn = xCombineIn,
+            xCombineOut = xCombineOut
         )
+

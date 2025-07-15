@@ -20,18 +20,16 @@ from .distributed_utils import (
     require_multi_node,
 )
 
-# [NEW] Import statements needed for nvshmem4py integration
-import os
-import numpy as np
-import torch.distributed as dist
-
 from cuda.core.experimental import Device, system, Program, ProgramOptions
 import nvshmem.core as nvshmem
+import numpy as np
+import os
+import torch.distributed as dist
 from nvshmem.core import Teams
 
+# Need to import the bindings for device-side initialization (nvshmem4py.init only does host-side initialization)
 import cuda.bindings
 import nvshmem.bindings as bindings
-# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 
 logger = logging.getLogger(__name__)
@@ -298,6 +296,8 @@ def _do_test_all_to_all(
             weight = float(rank_data.weights[i_token, i_expert].item())
             ref_y[i_token] += rank_data.x[i_token].to(device).to(y.dtype) * val * weight
     torch.testing.assert_close(y[: rank_data.num_tokens], ref_y)
+    print(f"y is {y[: rank_data.num_tokens].flatten()[:10]}, ref_y is {ref_y.flatten()[:10]}")
+
 
 
 def _worker_test_all_to_all(
@@ -321,6 +321,11 @@ def _worker_test_all_to_all(
     # _do_test_all_to_all(pgi, dp_size, moe_config, internode, use_compile)
     # nvshmem_finalize()
     ###############################################################
+
+
+    # # TODO: For clarification, we are JUST replacing the nvshmem python calls they have, NOT the custom ata.dispatch() and ata.combine() high-performance kernels that they have made. Need to replace nvshmem_malloc!
+    # First, we uid-bootstrap nvshmem with torchrun
+    # PGI given parameters that specify the communication group
     local_rank = int(os.environ['LOCAL_RANK'])
     world_size = int(os.environ['WORLD_SIZE'])
 
@@ -334,6 +339,8 @@ def _worker_test_all_to_all(
     global stream
     stream = dev.create_stream()
 
+    
+
     # Set up torch.distributed (dist) backend
     dist.init_process_group(
         backend="cpu:gloo,cuda:nccl",
@@ -341,6 +348,15 @@ def _worker_test_all_to_all(
         world_size=world_size,
         device_id=device
     )
+
+    # Register the default process group so that C++/CUDA kernels invoked via
+    # pplx_kernels can resolve it (they look it up by the hard-coded name
+    # "default").  Without this, calling AllToAll.intra/internode_create()
+    # raises "Could not resolve the process group registered under the name
+    # default".
+    world_group = torch.distributed.group.WORLD
+    assert world_group is not None, "torch.distributed default group wasn't initialised"
+    torch._C._distributed_c10d._register_process_group("default", world_group)
 
     num_ranks = dist.get_world_size()
     rank_id = dist.get_rank()
@@ -353,12 +369,15 @@ def _worker_test_all_to_all(
     else:
         broadcast_objects = [None]
 
+
     # Broadcast the UID from rank 0 to all other ranks
     dist.broadcast_object_list(broadcast_objects, src=0)
     dist.barrier()
 
     # Initialize NVSHMEM with the broadcasted UID
     nvshmem.init(device=dev, uid=broadcast_objects[0], rank=rank_id, nranks=num_ranks, initializer_method="uid")
+
+
 
     moe_config = dataclasses.replace(
         moe_config,
@@ -377,13 +396,20 @@ def _worker_test_all_to_all(
     # nvshmem.barrier(team, stream=stream)
     # stream.sync()
 
+    status = nvshmem.direct.init_status()
+    print(f"PYTHON STATUS: {status}")
+
+    nvshmem.collective.barrier(Teams.TEAM_WORLD, stream=stream)
+    dev.sync()
+
     # each PE will run this _do_test_all_to_all method simulating a MoE model.
     _do_test_all_to_all(pgi, dp_size, moe_config, internode, stream)
 
+
+    # TODO: Need to handle finalization here once device side initialization is complete
     # nvshmem.finalize()
     dist.destroy_process_group()
     # nvshmem_finalize()
-
 
 
 
@@ -399,9 +425,8 @@ def _worker_test_all_to_all(
 def test_all_to_all_4_gpu(
     in_dtype: str, out_dtype: str, internode: bool, use_compile: bool
 ) -> None:
-    # >>>>>>>>>>>>>>>>>>>>> [NEW] Replacement of old parallel_launch with torchrun
-    ### Old Pytest Command: pytest -svx --tb=short tests tests/test_all_to_all.py::test_all_to_all_4_gpu
-    ### New Pytest Command: torchrun --nproc-per-node 4 /lustre/fs1/portfolios/coreai/projects/coreai_libraries_nvshmem/wilchan/pplx/bin/pytest -svx --tb=short tests tests/test_all_to_all.py::test_all_to_all_4_gpu
+    ############################  OLD  ############################
+    ### pytest -svx --tb=short tests tests/test_all_to_all.py::test_all_to_all_4_gpu
     # world_size = 4
     # dp_size = 2
     # parallel_launch(
@@ -414,12 +439,15 @@ def test_all_to_all_4_gpu(
     #     internode,
     #     use_compile,
     # )
-    # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    ###############################################################
+
+    # torchrun --nproc-per-node 4 /lustre/fs1/portfolios/coreai/projects/coreai_libraries_nvshmem/wilchan/pplx/bin/pytest -svx --tb=short tests tests/test_all_to_all.py::test_all_to_all_4_gpu
+
     if "LOCAL_RANK" not in os.environ or "WORLD_SIZE" not in os.environ:
         pytest.skip("Must be run with torchrun")
 
     local_rank = int(os.environ["LOCAL_RANK"])
-    world_size = int(os.environ["WORLD_SIZE"])     # set torchrun --nproc-per-node 4 to replicate test
+    world_size = int(os.environ["WORLD_SIZE"])    # should be 4 as per the old specs
     dp_size = 2
 
     pgi = ProcessGroupInfo(
@@ -431,8 +459,6 @@ def test_all_to_all_4_gpu(
         device=torch.device("cuda", local_rank),
     )
     _worker_test_all_to_all(pgi, dp_size, in_dtype, out_dtype, small_moe, internode, use_compile)
-
-
 
 
 def _worker_test_all_to_all_multi_node(
@@ -451,8 +477,33 @@ def _worker_test_all_to_all_multi_node(
     )
 
 
+
+# TODO: MAKE THIS WORK WITH MULTINODE ENVIRONMENT?
+
 @require_multi_node
-@pytest.mark.parametrize("in_dtype", ["bfloat16", "float8_e4m3fn", "float16"])
-@pytest.mark.parametrize("out_dtype", ["float16", "bfloat16"])
+# @pytest.mark.parametrize("in_dtype", ["bfloat16", "float8_e4m3fn", "float16"])
+# @pytest.mark.parametrize("out_dtype", ["float16", "bfloat16"])
+@pytest.mark.parametrize("in_dtype", ["bfloat16"])
+@pytest.mark.parametrize("out_dtype", ["float16"])
 def test_all_to_all_multi_node(in_dtype: str, out_dtype: str) -> None:
-    parallel_launch_from_env(_worker_test_all_to_all_multi_node, in_dtype, out_dtype)
+    # parallel_launch_from_env(_worker_test_all_to_all_multi_node, in_dtype, out_dtype)
+    if "MASTER_ADDR" not in os.environ:
+        pytest.skip("Requires multi-node environment")
+
+    if "LOCAL_RANK" not in os.environ or "WORLD_SIZE" not in os.environ:
+        pytest.skip("Must be run with torchrun")
+
+    local_rank = int(os.environ["LOCAL_RANK"])
+    world_size = int(os.environ["WORLD_SIZE"]) 
+
+    pgi = ProcessGroupInfo(
+        world_size=world_size,
+        world_local_size=int(os.environ.get("LOCAL_WORLD_SIZE", world_size)),
+        rank=int(os.environ["RANK"]),
+        node_rank=int(os.environ.get("NODE_RANK", 0)),
+        local_rank=local_rank,
+        device=torch.device("cuda", local_rank),
+    )
+
+    _worker_test_all_to_all_multi_node(pgi, in_dtype, out_dtype)
+

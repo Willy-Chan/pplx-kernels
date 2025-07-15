@@ -10,6 +10,29 @@
 #include <torch/csrc/distributed/c10d/GroupRegistry.hpp>
 #include <torch/csrc/distributed/c10d/ProcessGroup.hpp>
 
+
+
+// TODO: NEW LIBS FOR DEVICE SIDE INITIALIZATION
+#include <stdio.h>
+#include <algorithm>
+#include <cuda_runtime.h>
+
+#ifdef __clang_llvm_bitcode_lib__
+#define assert(...)
+#include "nvshmem.h"
+#endif
+
+#include "non_abi/nvshmem_build_options.h"
+#include "non_abi/nvshmem_version.h"
+#include "non_abi/nvshmemx_error.h"
+#include "internal/device/nvshmemi_device.h"
+#include "non_abi/device/pt-to-pt/proxy_device.cuh"
+#include "device_host/nvshmem_common.cuh"
+#include "device_host/nvshmem_types.h"
+
+///////////////////////////////////////
+
+
 using namespace pplx;
 
 using fptr_t = int64_t;
@@ -71,6 +94,9 @@ fptr_t create_internode(
     at::Tensor xCombineIn,
     at::Tensor xCombineOut
 ) {
+
+
+  // Check the sizes in C++!!!!
   auto *ptr = new AllToAllInterNode(
       maxNumTokens,
       numExperts,
@@ -81,8 +107,8 @@ fptr_t create_internode(
       hiddenDim,
       hiddenDimBytes,
       hiddenDimScaleBytes,
-      // TODO: verify this reinterpret-casting is OK!
-      reinterpret_cast<uint64_t*>(numTokensBuffer.data_ptr()),
+
+      reinterpret_cast<uint64_t*>(numTokensBuffer.data_ptr()),    // TODO: REINTERPRET-CASTING int64 TO uint64 IS THIS OK???
       reinterpret_cast<uint64_t*>(numDispatchRecvBuffer.data_ptr()),
       reinterpret_cast<uint64_t*>(combineSignalBuffer.data_ptr()),
       reinterpret_cast<uint64_t*>(combineSyncBuffer.data_ptr()),
@@ -90,8 +116,8 @@ fptr_t create_internode(
       reinterpret_cast<std::byte*>(xDispatchOut.data_ptr()),
       reinterpret_cast<std::byte*>(xCombineIn.data_ptr()),
       reinterpret_cast<std::byte*>(xCombineOut.data_ptr())
-
   );
+
   return (fptr_t)ptr;
 }
 
@@ -348,27 +374,26 @@ namespace pplx {
 void register_all_to_all_ops(torch::Library &m) {
   m.def("all_to_all_destroy", &destroy);
 
-  // m.def("all_to_all_internode_create", &create_internode);
   m.def("all_to_all_internode_create("
-    "  int max_num_tokens,"
-    "  int num_experts,"
-    "  int experts_per_token,"
-    "  int rank,"
-    "  int world_size,"
-    "  int dp_size,"
-    "  int hidden_dim,"
-    "  int hidden_dim_bytes,"
-    "  int hidden_dim_scale_bytes,"
-    // [INTEGRATION] Part 4
-    "  Tensor numTokensBuffer,"
-    "  Tensor numDispatchRecvBuffer,"        
-    "  Tensor combineSignalBuffer,"
-    "  Tensor combineSyncBuffer,"
-    "  Tensor xDispatchIn,"
-    "  Tensor xDispatchOut,"
-    "  Tensor xCombineIn,"
-    "  Tensor xCombineOut"
-    ") -> int", &create_internode);
+        "  int max_num_tokens,"
+        "  int num_experts,"
+        "  int experts_per_token,"
+        "  int rank,"
+        "  int world_size,"
+        "  int dp_size,"
+        "  int hidden_dim,"
+        "  int hidden_dim_bytes,"
+        "  int hidden_dim_scale_bytes,"
+        // [INTEGRATION] Part 4
+        "  Tensor numTokensBuffer,"
+        "  Tensor numDispatchRecvBuffer,"        
+        "  Tensor combineSignalBuffer,"
+        "  Tensor combineSyncBuffer,"
+        "  Tensor xDispatchIn,"
+        "  Tensor xDispatchOut,"
+        "  Tensor xCombineIn,"
+        "  Tensor xCombineOut"
+        ") -> int", &create_internode);
 
   m.def("all_to_all_internode_dispatch("
         "  int fptr,"
