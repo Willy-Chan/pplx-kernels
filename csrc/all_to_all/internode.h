@@ -24,7 +24,16 @@ public:
       unsigned dpSize,
       size_t hiddenDim,
       size_t hiddenDimBytes,
-      size_t hiddenDimScaleBytes
+      size_t hiddenDimScaleBytes,
+      // [INTEGRATION] Part 6
+      uint64_t* extNumTokensBuffer,
+      uint64_t* extNumDispatchRecvBuffer,
+      uint64_t* extCombineSignalBuffer1,
+      uint64_t* extCombineSyncBuffer1,
+      std::byte* xDispatchIn,
+      std::byte* xDispatchOut,
+      std::byte* xCombineIn,
+      std::byte* xCombineOut
   );
 
   ~AllToAllInterNode();

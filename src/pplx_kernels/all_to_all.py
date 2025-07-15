@@ -7,6 +7,9 @@ import torch
 
 from .ops import _ops
 
+import nvshmem.core as nvshmem
+import ctypes
+
 
 class AllToAll:
     def __init__(
@@ -15,14 +18,44 @@ class AllToAll:
         combine_fn: Callable,
         dispatch_fn: Callable,
         has_scales: bool,
+        *,
+        numTokensBuffer = None,
+        numDispatchRecvBuffer = None,
+        combineSignalBuffer = None,
+        combineSyncBuffer = None,
+        xDispatchIn = None,
+        xDispatchOut = None,
+        xCombineIn = None,
+        xCombineOut = None
     ) -> None:
         self._ptr = ptr
         self._combine_fn = combine_fn
         self._dispatch_fn = dispatch_fn
         self._has_scales = has_scales
 
+        self.numTokensBuffer = numTokensBuffer
+        self.numDispatchRecvBuffer = numDispatchRecvBuffer
+        self.combineSignalBuffer = combineSignalBuffer
+        self.combineSyncBuffer = combineSyncBuffer
+        self.xDispatchIn = xDispatchIn 
+        self.xDispatchOut = xDispatchOut
+        self.xCombineIn = xCombineIn
+        self.xCombineOut = xCombineOut
+
     def __del__(self) -> None:
         self.destroy()
+
+        # TODO: Only internode communication uses NVSHMEM, correct? Intranode uses faster shared memory, so we check if this is None
+        # as a proxy of telling we're using NVSHMEM or not.
+        if self.numTokensBuffer is not None:
+            nvshmem.free_tensor(self.numTokensBuffer)
+            nvshmem.free_tensor(self.numDispatchRecvBuffer)
+            nvshmem.free_tensor(self.combineSignalBuffer)
+            nvshmem.free_tensor(self.combineSyncBuffer)
+            nvshmem.free_tensor(self.xDispatchIn)
+            nvshmem.free_tensor(self.xDispatchOut)
+            nvshmem.free_tensor(self.xCombineIn)
+            nvshmem.free_tensor(self.xCombineOut)
 
     def dispatch(
         self,
@@ -143,6 +176,38 @@ class AllToAll:
 
         has_scales = hidden_dim_scale_bytes > 0
 
+
+        # >>>>>>>>>>>>>>>>>>> NVSHMEM4PY TENSOR ALLOCATIONS >>>>>>>>>>>>>>>>>>>>>
+        def ceil_div(x: int, y: int) -> int:
+            return (x + y - 1) // y
+        def round_up(x: int, y: int) -> int:
+            """round up x to nearest multiple of y"""
+            return ((x + y - 1) // y) * y
+
+        numLocalExperts = ceil_div(num_experts, world_size)
+        numDPGroups     = ceil_div(world_size,  dp_size)
+
+        numTokensBuffer = nvshmem.interop.torch.tensor((numLocalExperts * numDPGroups,), dtype=torch.int64) # TODO: SHOULD BE uint64!!!
+        numTokensBuffer[:] = 0
+        numDispatchRecvBuffer = nvshmem.interop.torch.tensor((numLocalExperts * numDPGroups,), dtype=torch.int64)
+        numDispatchRecvBuffer[:] = 0
+        combineSignalBuffer = nvshmem.interop.torch.tensor((max_num_tokens,), dtype=torch.int64)
+        combineSignalBuffer[:] = 0
+        combineSyncBuffer = nvshmem.interop.torch.tensor((world_size,), dtype=torch.int64)
+        combineSyncBuffer[:] = 0
+
+        # [INTEGRATION] Part 1
+        per_token_bytes = round_up(hidden_dim_bytes + hidden_dim_scale_bytes + 4, 16)  # TODO: + 4 for uint32_t
+        max_batch_tokens = numLocalExperts * numDPGroups * max_num_tokens
+
+        xDispatchIn = nvshmem.interop.torch.tensor( (max_num_tokens * per_token_bytes,), dtype=torch.uint8 )
+        xDispatchOut = nvshmem.interop.torch.tensor( (max_batch_tokens * per_token_bytes,), dtype=torch.uint8 )
+
+        xCombineIn = nvshmem.interop.torch.tensor( (max_batch_tokens * hidden_dim,), dtype=torch.float32 )
+        xCombineOut = nvshmem.interop.torch.tensor( (max_num_tokens * num_experts * hidden_dim,), dtype=torch.float32 )
+        # >>>>>>>>>>>>>>>>>>> NVSHMEM4PY TENSOR ALLOCATIONS >>>>>>>>>>>>>>>>>>>>>
+        
+
         ptr = _ops.all_to_all_internode_create(
             max_num_tokens,
             num_experts,
@@ -153,6 +218,15 @@ class AllToAll:
             hidden_dim,
             hidden_dim_bytes,
             hidden_dim_scale_bytes,
+            # [INTEGRATION] Part 2
+            numTokensBuffer,
+            numDispatchRecvBuffer,
+            combineSignalBuffer,
+            combineSyncBuffer,
+            xDispatchIn,
+            xDispatchOut,
+            xCombineIn,
+            xCombineOut
         )
         assert ptr != 0
 

@@ -60,7 +60,16 @@ fptr_t create_internode(
     int64_t dpSize,
     int64_t hiddenDim,
     int64_t hiddenDimBytes,
-    int64_t hiddenDimScaleBytes
+    int64_t hiddenDimScaleBytes,
+    // [INTEGRATION] Part 3
+    at::Tensor numTokensBuffer,
+    at::Tensor numDispatchRecvBuffer,
+    at::Tensor combineSignalBuffer,
+    at::Tensor combineSyncBuffer,
+    at::Tensor xDispatchIn,
+    at::Tensor xDispatchOut,
+    at::Tensor xCombineIn,
+    at::Tensor xCombineOut
 ) {
   auto *ptr = new AllToAllInterNode(
       maxNumTokens,
@@ -71,7 +80,17 @@ fptr_t create_internode(
       dpSize,
       hiddenDim,
       hiddenDimBytes,
-      hiddenDimScaleBytes
+      hiddenDimScaleBytes,
+      // TODO: verify this reinterpret-casting is OK!
+      reinterpret_cast<uint64_t*>(numTokensBuffer.data_ptr()),
+      reinterpret_cast<uint64_t*>(numDispatchRecvBuffer.data_ptr()),
+      reinterpret_cast<uint64_t*>(combineSignalBuffer.data_ptr()),
+      reinterpret_cast<uint64_t*>(combineSyncBuffer.data_ptr()),
+      reinterpret_cast<std::byte*>(xDispatchIn.data_ptr()),
+      reinterpret_cast<std::byte*>(xDispatchOut.data_ptr()),
+      reinterpret_cast<std::byte*>(xCombineIn.data_ptr()),
+      reinterpret_cast<std::byte*>(xCombineOut.data_ptr())
+
   );
   return (fptr_t)ptr;
 }
@@ -329,7 +348,27 @@ namespace pplx {
 void register_all_to_all_ops(torch::Library &m) {
   m.def("all_to_all_destroy", &destroy);
 
-  m.def("all_to_all_internode_create", &create_internode);
+  // m.def("all_to_all_internode_create", &create_internode);
+  m.def("all_to_all_internode_create("
+    "  int max_num_tokens,"
+    "  int num_experts,"
+    "  int experts_per_token,"
+    "  int rank,"
+    "  int world_size,"
+    "  int dp_size,"
+    "  int hidden_dim,"
+    "  int hidden_dim_bytes,"
+    "  int hidden_dim_scale_bytes,"
+    // [INTEGRATION] Part 4
+    "  Tensor numTokensBuffer,"
+    "  Tensor numDispatchRecvBuffer,"        
+    "  Tensor combineSignalBuffer,"
+    "  Tensor combineSyncBuffer,"
+    "  Tensor xDispatchIn,"
+    "  Tensor xDispatchOut,"
+    "  Tensor xCombineIn,"
+    "  Tensor xCombineOut"
+    ") -> int", &create_internode);
 
   m.def("all_to_all_internode_dispatch("
         "  int fptr,"

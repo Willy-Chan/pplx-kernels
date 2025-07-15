@@ -366,12 +366,12 @@ def _worker_test_all_to_all(
         out_dtype=getattr(torch, out_dtype),
     )
 
-    # # -------------- TO DELETE --------------------
-    # # TODO: WE NEED TO DO DEVICE SIDE INITIALIZATION HERE
-    # uid = nvshmem_get_unique_id() if pgi.rank == 0 else nvshmem_alloc_empty_unique_id()
-    # torch.distributed.broadcast(uid, src=0)
-    # nvshmem_init(uid, pgi.rank, pgi.world_size)
-    # # -------------- TO DELETE --------------------
+    # -------------- TO DELETE --------------------
+    # TODO: WE NEED TO DO DEVICE SIDE INITIALIZATION HERE
+    uid = nvshmem_get_unique_id() if pgi.rank == 0 else nvshmem_alloc_empty_unique_id()
+    torch.distributed.broadcast(uid, src=0)
+    nvshmem_init(uid, pgi.rank, pgi.world_size)
+    # -------------- TO DELETE --------------------
 
     # team = Teams.TEAM_WORLD
     # nvshmem.barrier(team, stream=stream)
@@ -380,8 +380,6 @@ def _worker_test_all_to_all(
     # each PE will run this _do_test_all_to_all method simulating a MoE model.
     _do_test_all_to_all(pgi, dp_size, moe_config, internode, stream)
 
-
-    # TODO: Need to handle finalization here once device side initialization is complete
     # nvshmem.finalize()
     dist.destroy_process_group()
     # nvshmem_finalize()
