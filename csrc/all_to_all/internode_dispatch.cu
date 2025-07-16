@@ -328,14 +328,6 @@ void AllToAllInterNode::dispatch(
       &xDispatchOut,
   };
 
-  // Needed, or else will get a cuda illegal memory error when trying to reference NVSHMEM memory.
-  nvshmem_init();
-  // int mypeHost = nvshmem_my_pe();
-  // int npesHost = nvshmem_n_pes();
-  // printf("[INTER-DISPATCH.cu] mypeHost = %d, npesHost = %d\n", mypeHost, npesHost);
-  // nvshmemx_barrier_all_on_stream(stream);
-
-
   nvtxRangePush("dispatch");
   switch (splitMode) {
   case SplitMode::SEND:

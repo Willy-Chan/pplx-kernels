@@ -1,17 +1,17 @@
 import pytest
 import torch
 
-from pplx_kernels.nvshmem import (
-    nvshmem_alloc_empty_unique_id,
-    nvshmem_alltoall,
-    nvshmem_barrier_all_on_current_stream,
-    nvshmem_finalize,
-    nvshmem_get_unique_id,
-    nvshmem_init,
-    nvshmem_malloc,
-    nvshmem_my_pe,
-    nvshmem_n_pes,
-)
+# from pplx_kernels.nvshmem import (
+#     nvshmem_alloc_empty_unique_id,
+#     nvshmem_alltoall,
+#     nvshmem_barrier_all_on_current_stream,
+#     nvshmem_finalize,
+#     nvshmem_get_unique_id,
+#     nvshmem_init,
+#     nvshmem_malloc,
+#     nvshmem_my_pe,
+#     nvshmem_n_pes,
+# )
 
 from .distributed_utils import (
     ProcessGroupInfo,

@@ -111,6 +111,12 @@ AllToAllInterNode::AllToAllInterNode(
     //   xCombineOut = (std::byte *)nvshmem_malloc(maxNumTokens * numExperts * hiddenDim * sizeof(float));
     xCombineOut = (std::byte *)extXCombineOut;
 
+    // TODO: ADD A MULTILINE COMMENT HERE
+    // Needed, or else will get a cuda illegal memory error when trying to reference NVSHMEM memory.
+    // nvshmem_init();  // nvshmemx_collective_launch claims to initialize device state, doesn't seem to call nvshmemi_update_device_state(), need to review for next patch
+    // only do it once AND TAKE IT OUTSIDE OF THE DISPATCH (only do once)
+    nvshmem_init();
+
 
     // ------------------------------------------------------------
         // Diagnostics: print expected byte sizes that the original
