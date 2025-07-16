@@ -9,17 +9,6 @@ from pathlib import Path
 import torch
 
 from pplx_kernels.all_to_all import AllToAll
-###########  TO DELETE  ###########
-from pplx_kernels.nvshmem import (
-    nvshmem_alloc_empty_unique_id,
-    # nvshmem_alltoall,
-    # nvshmem_barrier_all_on_current_stream,
-    nvshmem_finalize,
-    nvshmem_get_unique_id,
-    nvshmem_init,
-    # nvshmem_malloc,
-)
-###########  TO DELETE  ###########
 
 from .all_to_all_utils import MoEConfig, RankTestData
 from .distributed_utils import (
@@ -313,14 +302,6 @@ def _worker_bench_all_to_all(
 
     nvshmem.init(device=dev, uid=broadcast_objects[0], rank=rank_id, nranks=num_ranks, initializer_method="uid")
 
-
-    # ####### ---- TO DELETE ---- #######
-    # uid = nvshmem_get_unique_id() if pgi.rank == 0 else nvshmem_alloc_empty_unique_id()
-    # torch.distributed.broadcast(uid, src=0)
-    # nvshmem_init(uid, pgi.rank, pgi.world_size)
-    # ####### -------------------- #######
-
-
     in_dtype = getattr(torch, in_dtype_str)
     out_dtype = getattr(torch, out_dtype_str)
     assert isinstance(in_dtype, torch.dtype)
@@ -415,7 +396,6 @@ def _worker_bench_all_to_all(
         f_out.close()
         print("Saved to", outpath)
 
-    nvshmem_finalize()
     nvshmem.finalize()
     dist.destroy_process_group()
 

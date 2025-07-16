@@ -362,13 +362,6 @@ def _worker_test_all_to_all(
         out_dtype=getattr(torch, out_dtype),
     )
 
-    # # -------------- TO DELETE --------------------
-    # # TODO: WE NEED TO DO DEVICE SIDE INITIALIZATION HERE
-    # uid = nvshmem_get_unique_id() if pgi.rank == 0 else nvshmem_alloc_empty_unique_id()
-    # torch.distributed.broadcast(uid, src=0)
-    # nvshmem_init(uid, pgi.rank, pgi.world_size)
-    # # -------------- TO DELETE --------------------
-
     # Check hostlib initialization
     test_script_init_status = nvshmem.direct.init_status()
     if test_script_init_status < 2 and local_rank == 0:
