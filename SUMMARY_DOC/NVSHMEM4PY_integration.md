@@ -32,7 +32,25 @@ torchrun --nproc-per-node 4 pytest -svx --tb=short tests tests/bench_all_to_all.
 
 ## 📈 Performance Study
 
-RUN ON A DGX H100 WITH 8 H100s
+### System Configuration
+
+All of the below tests were run using the provided benchmark script on a DGX system with 8 H100 GPUs.
+
+```Unix
+name,                memory.total [MiB], driver_version, compute_cap
+NVIDIA H100 80GB HBM3,   81559 MiB,       535.216.03,       9.0
+NVIDIA H100 80GB HBM3,   81559 MiB,       535.216.03,       9.0
+NVIDIA H100 80GB HBM3,   81559 MiB,       535.216.03,       9.0
+NVIDIA H100 80GB HBM3,   81559 MiB,       535.216.03,       9.0
+```
+
+These are the performance results I measured on CoreWeave - the performance appears to be pretty much comparable for dispatch and combine on E=64, but E=256 the gap widens - this is likely the tradeoff of dynamic linking with nvshmem.
+![MoE Kernel (E=64, E/tok=6, dim=2048)](8_gpu_e64.png)
+![MoE Kernel (E=64, E/tok=6, dim=2048)](8_gpu_e256.png)
+
+Interestingly, decreasing the number of GPUs to just 4 results in a larger performance gap - could be worth a further analysis of why.
+![MoE Kernel (E=64, E/tok=6, dim=2048)](4_gpu_e64.png)
+![MoE Kernel (E=64, E/tok=6, dim=2048)](4_gpu_e256.png)
 
 ### Git Merge Request Summary
 

@@ -10,3 +10,5 @@ dist
 .pytest_cache
 __pycache__
 bench_100.sh
+
+analyze.py

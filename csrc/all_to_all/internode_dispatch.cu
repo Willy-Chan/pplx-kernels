@@ -341,8 +341,8 @@ void AllToAllInterNode::dispatch(
     ));
     break;
   case SplitMode::RECV:
-    // CUDACHECK(cudaLaunchCooperativeKernel(
-    NVSHMEM_CHECK(nvshmemx_collective_launch(
+    CUDACHECK(cudaLaunchCooperativeKernel(
+    // NVSHMEM_CHECK(nvshmemx_collective_launch(
         (void *)&dispatchKernel<NUM_WARPS, false, true>,
         dimGrid,
         dimBlock,
@@ -352,8 +352,8 @@ void AllToAllInterNode::dispatch(
     ));
     break;
   case SplitMode::NONE:
-    // CUDACHECK(cudaLaunchCooperativeKernel(
-    NVSHMEM_CHECK(nvshmemx_collective_launch(
+    CUDACHECK(cudaLaunchCooperativeKernel(
+    // NVSHMEM_CHECK(nvshmemx_collective_launch(
         (void *)&dispatchKernel<NUM_WARPS, true, true>,
         dimGrid,
         dimBlock,
