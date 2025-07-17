@@ -9,3 +9,4 @@ dist
 .mypy_cache
 .pytest_cache
 __pycache__
+bench_100.sh

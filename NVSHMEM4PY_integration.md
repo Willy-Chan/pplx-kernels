@@ -1,6 +1,6 @@
 # NVSHMEM4py x Perplexity MoE Kernels
 
-## Overview
+## 📝 Overview
 
 This is a summary document describing the NVSHMEM4PY integration into the pplx-kernels project:
 
@@ -10,7 +10,7 @@ This is a summary document describing the NVSHMEM4PY integration into the pplx-k
   <li>Dynamic linking with NVSHMEM</li>
 </ol>
 
-## /tests/ command quick reference
+## 💻 /tests/ command quick reference
 
 <b>Running Sanity Checks (test_nvshmem.py)</b>
 
@@ -30,11 +30,30 @@ torchrun --nproc-per-node 4 pytest -svx --tb=short tests tests/test_all_to_all.p
 torchrun --nproc-per-node 4 pytest -svx --tb=short tests tests/bench_all_to_all.py
 ```
 
-## Performance Study
+## 📈 Performance Study
 
-## DIFF/STATS OF LINES OF CODE/ADVANTAGE/SIMPLICITY COMPARED TO THE PREVIOUS
+### Git Merge Request Summary
 
-## NVSHMEM Library
+#### 📊 Change Summary (Integration only - this excludes the summary document and testing files)
+
+1. **Files Changed**: 8
+2. **Lines Added**: +238
+3. **Lines Removed**: -65
+
+#### 🗂️ Files with Changes
+
+| File Path                               | Additions (+) | Deletions (−) | Total Changes |
+| --------------------------------------- | ------------- | ------------- | ------------- |
+| `csrc/all_to_all/internode.cpp`         | 93            | 52            | 145           |
+| `src/pplx_kernels/all_to_all.py`        | 77            | 1             | 78            |
+| `csrc/bindings/all_to_all_ops.cpp`      | 39            | 3             | 41            |
+| `csrc/all_to_all/internode_dispatch.cu` | 13            | 2             | 15            |
+| `csrc/all_to_all/internode.h`           | 9             | 1             | 10            |
+| `csrc/all_to_all/CMakeLists.txt`        | 4             | 4             | 8             |
+| `csrc/CMakeLists.txt`                   | 2             | 1             | 3             |
+| `csrc/core/CMakeLists.txt`              | 1             | 1             | 2             |
+
+## 📗 NVSHMEM Library
 
 See this [note on NVSHMEM Bootstrapping vs Initialization](#note-on-bootstrapping-and-initialization) if you're curious about the differences and low-level details. See [why we separate host and device initialization](#but-why-separate-host-and-device-components) as well.
 
@@ -70,7 +89,9 @@ target_link_libraries(pplx_kernels PUBLIC
 )
 ```
 
-## Integration Points
+## 🔌 Integration Points
+
+### NEED TO EXPLAIN THE FULL TRACE OF ALL 5 FILES SO THEY CAN SEE EXACTLY WHAT I CHANGED: NEED TO ADD A PICTURE SHOWING THE FULL TRACED OUT STACK
 
 ### Python API
 
@@ -118,7 +139,7 @@ target_link_libraries(all_to_all_intranode_lib INTERFACE
 )
 ```
 
-# Appendix
+# 📖 Appendix
 
 ## Note on Bootstrapping and Initialization
 
