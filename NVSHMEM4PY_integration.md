@@ -32,6 +32,8 @@ torchrun --nproc-per-node 4 pytest -svx --tb=short tests tests/bench_all_to_all.
 
 ## 📈 Performance Study
 
+RUN ON A DGX H100 WITH 8 H100s
+
 ### Git Merge Request Summary
 
 #### 📊 Change Summary (Integration only - this excludes the summary document and testing files)
