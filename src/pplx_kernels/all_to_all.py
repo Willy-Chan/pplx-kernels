@@ -32,9 +32,6 @@ class AllToAll:
         self._combine_fn = combine_fn
         self._dispatch_fn = dispatch_fn
         self._has_scales = has_scales
-
-        # TODO: Added these extra attributes because we need a handle to the nvshmem4py device tensors, 
-        # so that way we can free them when calling destroy()
         self.numTokensBuffer = numTokensBuffer
         self.numDispatchRecvBuffer = numDispatchRecvBuffer
         self.combineSignalBuffer = combineSignalBuffer
@@ -46,9 +43,6 @@ class AllToAll:
 
     def __del__(self) -> None:
         self.destroy()
-
-        # TODO: Only internode communication uses NVSHMEM, correct? Intranode uses faster shared memory, so we check if this is None
-        # as a proxy of telling we're using NVSHMEM or not.
         if self.numTokensBuffer is not None:
             nvshmem.free_tensor(self.numTokensBuffer)
             nvshmem.free_tensor(self.numDispatchRecvBuffer)
@@ -179,17 +173,14 @@ class AllToAll:
 
         has_scales = hidden_dim_scale_bytes > 0
 
-        # TODO: verify these values, they seem to do floor division in the C++ code?
-        # numLocalExperts = num_experts // world_size
-        # numDPGroups = world_size // dp_size
-
         def ceil_div(x: int, y: int) -> int:
             return (x + y - 1) // y
 
         numLocalExperts = ceil_div(num_experts, world_size)
         numDPGroups     = ceil_div(world_size,  dp_size)
 
-        numTokensBuffer = nvshmem.interop.torch.tensor((numLocalExperts * numDPGroups,), dtype=torch.int64) # TODO: SHOULD BE uint64!!!
+        # Note that this should be torch.uint64, but uint64 not supported on most systems, so we just zero it out here
+        numTokensBuffer = nvshmem.interop.torch.tensor((numLocalExperts * numDPGroups,), dtype=torch.int64)
         numTokensBuffer[:] = 0
         numDispatchRecvBuffer = nvshmem.interop.torch.tensor((numLocalExperts * numDPGroups,), dtype=torch.int64)
         numDispatchRecvBuffer[:] = 0
@@ -202,7 +193,6 @@ class AllToAll:
             """Round up x to the nearest multiple of y."""
             return ((x + y - 1) // y) * y
 
-        # [INTEGRATION] Part 1
         per_token_bytes = round_up(hidden_dim_bytes + hidden_dim_scale_bytes + 4, 16)  # TODO: + 4 for uint32_t
         max_batch_tokens = numLocalExperts * numDPGroups * max_num_tokens
 
@@ -222,7 +212,6 @@ class AllToAll:
             hidden_dim,
             hidden_dim_bytes,
             hidden_dim_scale_bytes,
-            # [INTEGRATION] Part 2
             numTokensBuffer,
             numDispatchRecvBuffer,
             combineSignalBuffer,

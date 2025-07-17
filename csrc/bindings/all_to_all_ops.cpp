@@ -10,29 +10,6 @@
 #include <torch/csrc/distributed/c10d/GroupRegistry.hpp>
 #include <torch/csrc/distributed/c10d/ProcessGroup.hpp>
 
-
-
-// TODO: NEW LIBS FOR DEVICE SIDE INITIALIZATION
-#include <stdio.h>
-#include <algorithm>
-#include <cuda_runtime.h>
-
-#ifdef __clang_llvm_bitcode_lib__
-#define assert(...)
-#include "nvshmem.h"
-#endif
-
-#include "non_abi/nvshmem_build_options.h"
-#include "non_abi/nvshmem_version.h"
-#include "non_abi/nvshmemx_error.h"
-#include "internal/device/nvshmemi_device.h"
-#include "non_abi/device/pt-to-pt/proxy_device.cuh"
-#include "device_host/nvshmem_common.cuh"
-#include "device_host/nvshmem_types.h"
-
-///////////////////////////////////////
-
-
 using namespace pplx;
 
 using fptr_t = int64_t;
@@ -84,7 +61,6 @@ fptr_t create_internode(
     int64_t hiddenDim,
     int64_t hiddenDimBytes,
     int64_t hiddenDimScaleBytes,
-    // [INTEGRATION] Part 3
     at::Tensor numTokensBuffer,
     at::Tensor numDispatchRecvBuffer,
     at::Tensor combineSignalBuffer,
@@ -95,8 +71,6 @@ fptr_t create_internode(
     at::Tensor xCombineOut
 ) {
 
-
-  // Check the sizes in C++!!!!
   auto *ptr = new AllToAllInterNode(
       maxNumTokens,
       numExperts,
@@ -107,8 +81,7 @@ fptr_t create_internode(
       hiddenDim,
       hiddenDimBytes,
       hiddenDimScaleBytes,
-
-      reinterpret_cast<uint64_t*>(numTokensBuffer.data_ptr()),    // TODO: REINTERPRET-CASTING int64 TO uint64 IS THIS OK???
+      reinterpret_cast<uint64_t*>(numTokensBuffer.data_ptr()),
       reinterpret_cast<uint64_t*>(numDispatchRecvBuffer.data_ptr()),
       reinterpret_cast<uint64_t*>(combineSignalBuffer.data_ptr()),
       reinterpret_cast<uint64_t*>(combineSyncBuffer.data_ptr()),
@@ -384,7 +357,6 @@ void register_all_to_all_ops(torch::Library &m) {
         "  int hidden_dim,"
         "  int hidden_dim_bytes,"
         "  int hidden_dim_scale_bytes,"
-        // [INTEGRATION] Part 4
         "  Tensor numTokensBuffer,"
         "  Tensor numDispatchRecvBuffer,"        
         "  Tensor combineSignalBuffer,"

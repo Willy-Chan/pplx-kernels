@@ -121,8 +121,8 @@ def bench_all_to_all(
     )
     a2a_out_tensor = torch.empty_like(a2a_tensor)
 
-    nvshmem_in  =   nvshmem.interop.torch.tensor( a2a_shape, dtype=torch.uint8 )    # nvshmem_malloc(a2a_shape, torch.uint8, device)
-    nvshmem_out =   nvshmem.interop.torch.tensor( a2a_shape, dtype=torch.uint8 )   # nvshmem_malloc(a2a_shape, torch.uint8, device)
+    nvshmem_in  =   nvshmem.interop.torch.tensor( a2a_shape, dtype=torch.uint8 )
+    nvshmem_out =   nvshmem.interop.torch.tensor( a2a_shape, dtype=torch.uint8 )
 
     # Compute stats
     dispatch_bytes = (
@@ -149,7 +149,7 @@ def bench_all_to_all(
         for e0, e1, e2, e3, e4 in events:
             team = Teams.TEAM_WORLD
             torch_stream_ = torch.cuda.current_stream()
-            nvshmem.collective.barrier(team, torch_stream_wrapped)     # nvshmem_barrier_all_on_current_stream()
+            nvshmem.collective.barrier(team, torch_stream_wrapped)
 
             e0.record(torch_stream_)
 
@@ -177,7 +177,7 @@ def bench_all_to_all(
 
             e3.record(torch_stream_)
 
-            nvshmem.collective.alltoall(team, nvshmem_out, nvshmem_in, stream=torch_stream_wrapped)    #  nvshmem_alltoall(nvshmem_out, nvshmem_in)
+            nvshmem.collective.alltoall(team, nvshmem_out, nvshmem_in, stream=torch_stream_wrapped)
 
             e4.record(torch_stream_)
 
@@ -252,33 +252,15 @@ def _worker_bench_all_to_all(
     out_dtype_str: str,
 ) -> None:
 
-
     torch.cuda.set_device(pgi.local_rank)
     device = torch.device("cuda", pgi.local_rank)
-
-    ####################### Old Code #######################
-    # torch.distributed.init_process_group(
-    #     backend="cpu:gloo,cuda:nccl",
-    #     rank=pgi.rank,
-    #     world_size=pgi.world_size,
-    #     device_id=device,
-    # )
-    # world_group = torch.distributed.group.WORLD
-    # assert world_group is not None
-    # torch._C._distributed_c10d._register_process_group("default", world_group)
-
-    # barrier = torch.tensor([pgi.rank], device=device)
-    # torch.distributed.all_reduce(barrier)
-
-    # setup_logging(f"[rank{pgi.rank:{len(str(pgi.world_size - 1))}d}] ")
-    ####################### Old Code #######################
 
     dev = Device(pgi.local_rank)
     dev.set_current()
     global stream
     stream = dev.create_stream()
 
-    # Initialise torch.distributed FIRST (required for broadcasts)
+    # Initialise torch.distributed, which is needed for the UID broadcast
     dist.init_process_group(
         backend="cpu:gloo,cuda:nccl",
         rank=pgi.local_rank,
@@ -289,7 +271,7 @@ def _worker_bench_all_to_all(
     num_ranks = dist.get_world_size()
     rank_id = dist.get_rank()
 
-    # Broadcast an NVSHMEM UID from rank-0 then initialise the Core runtime
+    # Broadcast UID from rank 0 then initialise the nvshmem.core runtime
     uniqueid = nvshmem.get_unique_id(empty=True)
     if rank_id == 0:
         uniqueid = nvshmem.get_unique_id()
@@ -417,14 +399,6 @@ def main() -> None:
     dp_size = int(args.dp_size)
     in_dtype = str(args.in_dtype)
     out_dtype = str(args.out_dtype)
-
-    # if "MASTER_ADDR" in os.environ:
-    #     parallel_launch_from_env(_worker_bench_all_to_all, dp_size, in_dtype, out_dtype)
-    # else:
-    #     world_size = torch.cuda.device_count()
-    #     parallel_launch(
-    #         world_size, _worker_bench_all_to_all, dp_size, in_dtype, out_dtype
-    #     )
 
     local_rank = int(os.environ['LOCAL_RANK'])
     world_size = int(os.environ['WORLD_SIZE'])
