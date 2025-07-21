@@ -17,9 +17,8 @@ from .distributed_utils import (
     parallel_launch_from_env,
 )
 
-from cuda.core.experimental import Device, system, Program, ProgramOptions
+from cuda.core.experimental import Device
 import nvshmem.core as nvshmem
-import numpy as np
 import os
 import torch.distributed as dist
 from nvshmem.core import Teams

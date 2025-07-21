@@ -8,10 +8,8 @@ from .distributed_utils import (
     require_multi_node,
 )
 
-from cuda.core.experimental import Device, system
+from cuda.core.experimental import Device
 import nvshmem.core as nvshmem
-import numpy as np
-import os
 import torch.distributed as dist
 from nvshmem.core import Teams
 
@@ -78,7 +76,7 @@ def test_nvshmem_4_gpu() -> None:
 def _worker_test_all_to_all(pgi: ProcessGroupInfo) -> None:
     local_rank = dist.get_rank()
     world_size = dist.get_world_size()
-    
+
     # Set the device for custom CUDA code (cuda.core) (ensures NVSHMEM operations target the right GPU)
     dev = Device(local_rank)
     dev.set_current()
