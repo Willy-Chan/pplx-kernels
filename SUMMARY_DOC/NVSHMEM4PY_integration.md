@@ -14,20 +14,22 @@ This is a summary document describing the NVSHMEM4PY integration into the pplx-k
 
 <b>Running Sanity Checks (test_nvshmem.py)</b>
 
+Note that there is a separate branch (cmake_dl_and_nvshmem_malloc_full_integration) that requires torchrun instead of the native pytest framework.
+
 ```Unix
-torchrun --nproc-per-node 4 pytest -svx --tb=short tests tests/test_nvshmem.py
+pytest -svx --tb=short tests tests/test_nvshmem.p
 ```
 
 <b>Running All-To-All Checks (test_all_to_all.py)</b>
 
 ```Unix
-torchrun --nproc-per-node 4 pytest -svx --tb=short tests tests/test_all_to_all.py
+pytest -svx --tb=short tests tests/test_all_to_all.py::test_all_to_all_4_gpu
 ```
 
 <b>Running Benchmark (bench_all_to_all.py)</b>
 
 ```Unix
-torchrun --nproc-per-node 4 pytest -svx --tb=short tests tests/bench_all_to_all.py
+python3 -m tests.bench_all_to_all
 ```
 
 ## 📈 Performance Study
