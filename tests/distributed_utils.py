@@ -40,8 +40,10 @@ def _worker_parallel_launch(
     *args: P.args,
     **kwargs: P.kwargs,
 ) -> None:
+
     rank = node_rank * world_local_size + local_rank
-    torch.cuda.set_device(local_rank)
+
+    torch.cuda.set_device(rank)
     device = torch.device("cuda", local_rank)
     torch.distributed.init_process_group(
         backend="cpu:gloo,cuda:nccl",

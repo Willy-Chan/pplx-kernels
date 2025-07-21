@@ -251,25 +251,14 @@ def _worker_bench_all_to_all(
     in_dtype_str: str,
     out_dtype_str: str,
 ) -> None:
+    # Torch CUDA device and dist.init_process_group() already configured.
+    num_ranks = dist.get_world_size()
+    rank_id = dist.get_rank()
 
-    torch.cuda.set_device(pgi.local_rank)
-    device = torch.device("cuda", pgi.local_rank)
-
-    dev = Device(pgi.local_rank)
+    dev = Device(rank_id)
     dev.set_current()
     global stream
     stream = dev.create_stream()
-
-    # Initialise torch.distributed, which is needed for the UID broadcast
-    dist.init_process_group(
-        backend="cpu:gloo,cuda:nccl",
-        rank=pgi.local_rank,
-        world_size=pgi.world_size,
-        device_id=device,
-    )
-
-    num_ranks = dist.get_world_size()
-    rank_id = dist.get_rank()
 
     # Broadcast UID from rank 0 then initialise the nvshmem.core runtime
     uniqueid = nvshmem.get_unique_id(empty=True)
@@ -379,7 +368,6 @@ def _worker_bench_all_to_all(
         print("Saved to", outpath)
 
     nvshmem.finalize()
-    dist.destroy_process_group()
 
 
 def main() -> None:
@@ -400,18 +388,13 @@ def main() -> None:
     in_dtype = str(args.in_dtype)
     out_dtype = str(args.out_dtype)
 
-    local_rank = int(os.environ['LOCAL_RANK'])
-    world_size = int(os.environ['WORLD_SIZE'])
-    pgi = ProcessGroupInfo(
-        world_size=world_size,
-        world_local_size=int(os.environ.get("LOCAL_WORLD_SIZE", world_size)),
-        rank=int(os.environ["RANK"]),
-        node_rank=int(os.environ.get("NODE_RANK", 0)),
-        local_rank=local_rank,
-        device=torch.device("cuda", local_rank),
-    )
-
-    _worker_bench_all_to_all(pgi, dp_size, in_dtype, out_dtype)
+    if "MASTER_ADDR" in os.environ:
+        parallel_launch_from_env(_worker_bench_all_to_all, dp_size, in_dtype, out_dtype)
+    else:
+        world_size = torch.cuda.device_count()
+        parallel_launch(
+            world_size, _worker_bench_all_to_all, dp_size, in_dtype, out_dtype
+        )
 
 
 if __name__ == "__main__":

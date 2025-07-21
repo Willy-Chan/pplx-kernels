@@ -15,11 +15,9 @@ from .distributed_utils import (
 )
 
 import os
-import numpy as np
-from cuda.core.experimental import Device, system, Program, ProgramOptions
+from cuda.core.experimental import Device
 import torch.distributed as dist
 import nvshmem.core as nvshmem
-from nvshmem.core import Teams
 
 
 logger = logging.getLogger(__name__)
@@ -286,7 +284,6 @@ def _do_test_all_to_all(
             weight = float(rank_data.weights[i_token, i_expert].item())
             ref_y[i_token] += rank_data.x[i_token].to(device).to(y.dtype) * val * weight
     torch.testing.assert_close(y[: rank_data.num_tokens], ref_y)
-    print(f"y is {y[: rank_data.num_tokens].flatten()[:10]}, ref_y is {ref_y.flatten()[:10]}")
 
 def _worker_test_all_to_all(
     pgi: ProcessGroupInfo,
@@ -297,29 +294,15 @@ def _worker_test_all_to_all(
     internode: bool,
     use_compile: bool = False,
 ) -> None:
-
-    local_rank = int(os.environ['LOCAL_RANK'])
-    world_size = int(os.environ['WORLD_SIZE'])
-
-    # Set the device for PyTorch (ensures torch operations target the right GPU)
-    torch.cuda.set_device(local_rank)
-    device = torch.device("cuda", local_rank)
+    num_ranks = dist.get_world_size()
+    rank_id = dist.get_rank()
 
     # Set the device for custom CUDA code (cuda.core) (ensures NVSHMEM operations target the right GPU)
-    dev = Device(local_rank)
+    # Pytorch Device setting and dist.init_process_group() has already been done in the launcher of this worker function
+    dev = Device(rank_id)
     dev.set_current()
     global stream
     stream = dev.create_stream()
-
-    dist.init_process_group(
-        backend="cpu:gloo,cuda:nccl",
-        rank=pgi.rank,
-        world_size=world_size,
-        device_id=device
-    )
-
-    num_ranks = dist.get_world_size()
-    rank_id = dist.get_rank()
 
     uniqueid = nvshmem.get_unique_id(empty=True)
     if rank_id == 0:
@@ -328,7 +311,7 @@ def _worker_test_all_to_all(
     else:
         broadcast_objects = [None]
 
-    # Broadcast the UID from rank 0 to all other ranks
+    # Pythonically Broadcast the UID from rank 0 to all other ranks
     dist.broadcast_object_list(broadcast_objects, src=0)
     dist.barrier()
 
@@ -345,45 +328,32 @@ def _worker_test_all_to_all(
     if test_script_init_status < 2 and local_rank == 0:
         print(f"Nvshmem.core hostlib_init_attr did not initialize, has status {test_script_init_status}")
 
+
     _do_test_all_to_all(pgi, dp_size, moe_config, internode, stream)
 
     nvshmem.finalize()
-    # dist.destroy_process_group()
 
-
-# [TODO] Current command to run this test:
-# torchrun --nproc-per-node 4 /lustre/fs1/portfolios/coreai/projects/coreai_libraries_nvshmem/wilchan/pplx/bin/pytest -svx --tb=short tests tests/test_all_to_all.py::test_all_to_all_4_gpu
-# [TODO] Doesn't currently support loops so you have to manually sub in the parameters
 @pytest.mark.skipif(torch.cuda.device_count() < 4, reason="Requires at least 4 GPUs")
-# @pytest.mark.parametrize("in_dtype", ["bfloat16", "float8_e4m3fn", "float16"])
-# @pytest.mark.parametrize("out_dtype", ["float16", "bfloat16"])
-# @pytest.mark.parametrize("internode", [True, False])
-# @pytest.mark.parametrize("use_compile", [False, True])
-@pytest.mark.parametrize("in_dtype", ["bfloat16"])
-@pytest.mark.parametrize("out_dtype", ["float16"])
-@pytest.mark.parametrize("internode", [True])
-@pytest.mark.parametrize("use_compile", [False])
+@pytest.mark.parametrize("in_dtype", ["bfloat16", "float8_e4m3fn", "float16"])
+@pytest.mark.parametrize("out_dtype", ["float16", "bfloat16"])
+@pytest.mark.parametrize("internode", [True, False])
+@pytest.mark.parametrize("use_compile", [False, True])
 def test_all_to_all_4_gpu(
     in_dtype: str, out_dtype: str, internode: bool, use_compile: bool
 ) -> None:
 
-    if "LOCAL_RANK" not in os.environ or "WORLD_SIZE" not in os.environ:
-        pytest.skip("Must be run with torchrun")
-
-    local_rank = int(os.environ["LOCAL_RANK"])
     world_size = 4
-
     dp_size = 2
-
-    pgi = ProcessGroupInfo(
-        world_size=world_size,
-        world_local_size=int(os.environ.get("LOCAL_WORLD_SIZE", world_size)),
-        rank=int(os.environ["RANK"]),
-        node_rank=int(os.environ.get("NODE_RANK", 0)),
-        local_rank=local_rank,
-        device=torch.device("cuda", local_rank),
+    parallel_launch(
+        world_size,
+        _worker_test_all_to_all,
+        dp_size,
+        in_dtype,
+        out_dtype,
+        small_moe,
+        internode,
+        use_compile,
     )
-    _worker_test_all_to_all(pgi, dp_size, in_dtype, out_dtype, small_moe, internode, use_compile)
 
 
 def _worker_test_all_to_all_multi_node(
