@@ -17,7 +17,7 @@ This is a summary document describing the NVSHMEM4PY integration into the pplx-k
 Note that there is a separate branch (cmake_dl_and_nvshmem_malloc_full_integration) that requires torchrun instead of the native pytest framework.
 
 ```Unix
-pytest -svx --tb=short tests tests/test_nvshmem.p
+pytest -svx --tb=short tests tests/test_nvshmem.py
 ```
 
 <b>Running All-To-All Checks (test_all_to_all.py)</b>
