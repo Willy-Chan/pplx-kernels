@@ -102,9 +102,9 @@ def _worker_test_all_to_all(pgi: ProcessGroupInfo) -> None:
     # all-to-all test
     try:
         # Allocate a PyTorch tensor backed by NVSHMEM symmetric memory
-        t_in = nvshmem.interop.torch.tensor( (pgi.world_size,), dtype=torch.int32 )
+        t_in = nvshmem.tensor( (pgi.world_size,), dtype=torch.int32 )
         t_in.fill_(pgi.rank)
-        t_out = nvshmem.interop.torch.tensor( (pgi.world_size,), dtype=torch.int32 )
+        t_out = nvshmem.tensor( (pgi.world_size,), dtype=torch.int32 )
 
         # Perform the all-to-all operation with TEAM_WORLD and the specified stream
         team = Teams.TEAM_WORLD
@@ -115,8 +115,8 @@ def _worker_test_all_to_all(pgi: ProcessGroupInfo) -> None:
 
         assert t_out.tolist() == list(range(pgi.world_size))
     finally:
-        nvshmem.interop.torch.free_tensor(t_in)
-        nvshmem.interop.torch.free_tensor(t_out)
+        nvshmem.free_tensor(t_in)
+        nvshmem.free_tensor(t_out)
         nvshmem.finalize()
 
     

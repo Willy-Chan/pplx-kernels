@@ -7,6 +7,10 @@ from datetime import datetime
 from pathlib import Path
 
 import torch
+from cuda.core.experimental import Device
+import nvshmem.core as nvshmem
+import torch.distributed as dist
+from nvshmem.core import Teams
 
 from pplx_kernels.all_to_all import AllToAll
 
@@ -16,12 +20,6 @@ from .distributed_utils import (
     parallel_launch,
     parallel_launch_from_env,
 )
-
-from cuda.core.experimental import Device
-import nvshmem.core as nvshmem
-import os
-import torch.distributed as dist
-from nvshmem.core import Teams
 
 logger = logging.getLogger(__name__)
 
@@ -120,8 +118,8 @@ def bench_all_to_all(
     )
     a2a_out_tensor = torch.empty_like(a2a_tensor)
 
-    nvshmem_in  =   nvshmem.interop.torch.tensor( a2a_shape, dtype=torch.uint8 )
-    nvshmem_out =   nvshmem.interop.torch.tensor( a2a_shape, dtype=torch.uint8 )
+    nvshmem_in  =   nvshmem.tensor( a2a_shape, dtype=torch.uint8 )
+    nvshmem_out =   nvshmem.tensor( a2a_shape, dtype=torch.uint8 )
 
     # Compute stats
     dispatch_bytes = (
@@ -225,8 +223,8 @@ def bench_all_to_all(
     # Cleanup
     ata.destroy()
     
-    nvshmem.interop.torch.free_tensor(nvshmem_in)
-    nvshmem.interop.torch.free_tensor(nvshmem_out)
+    nvshmem.free_tensor(nvshmem_in)
+    nvshmem.free_tensor(nvshmem_out)
 
     return (
         (dispatch_bytes, combine_bytes, a2a_bytes, nvshmem_bytes),

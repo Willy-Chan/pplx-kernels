@@ -1,9 +1,12 @@
 import dataclasses
 import logging
+import os
 
 import pytest
 import torch
-
+import torch.distributed as dist
+from cuda.core.experimental import Device
+import nvshmem.core as nvshmem
 from pplx_kernels.all_to_all import AllToAll
 
 from .all_to_all_utils import MoEConfig, RankTestData
@@ -13,11 +16,6 @@ from .distributed_utils import (
     parallel_launch_from_env,
     require_multi_node,
 )
-
-import os
-from cuda.core.experimental import Device
-import torch.distributed as dist
-import nvshmem.core as nvshmem
 
 
 logger = logging.getLogger(__name__)
@@ -285,6 +283,15 @@ def _do_test_all_to_all(
             ref_y[i_token] += rank_data.x[i_token].to(device).to(y.dtype) * val * weight
     torch.testing.assert_close(y[: rank_data.num_tokens], ref_y)
 
+class PyTorchStreamWrapper:
+    def __init__(self, pt_stream):
+        self.pt_stream = pt_stream
+        self.handle = pt_stream.cuda_stream
+
+    def __cuda_stream__(self):
+        stream_id = self.pt_stream.cuda_stream
+        return (0, stream_id)  # Return format required by CUDA Python
+
 def _worker_test_all_to_all(
     pgi: ProcessGroupInfo,
     dp_size: int,
@@ -301,8 +308,8 @@ def _worker_test_all_to_all(
     # Pytorch Device setting and dist.init_process_group() has already been done in the launcher of this worker function
     dev = Device(rank_id)
     dev.set_current()
-    global stream
-    stream = dev.create_stream()
+
+    stream = PyTorchStreamWrapper(torch.cuda.current_stream())
 
     uniqueid = nvshmem.get_unique_id(empty=True)
     if rank_id == 0:
@@ -323,10 +330,12 @@ def _worker_test_all_to_all(
         out_dtype=getattr(torch, out_dtype),
     )
 
-    # Check initialization for the hostlib side only - note that host and device initialization are separate!
-    test_script_init_status = nvshmem.direct.init_status()
+    test_script_init_status = nvshmem.init_status()
     if test_script_init_status < 2 and local_rank == 0:
-        print(f"Nvshmem.core hostlib_init_attr did not initialize, has status {test_script_init_status}")
+        logger.warning(
+            "NVSHMEM hostlib initialization incomplete - status: %d (rank: %d, local_rank: %d)",
+            test_script_init_status, rank_id, local_rank
+        )
 
 
     _do_test_all_to_all(pgi, dp_size, moe_config, internode, stream)
@@ -372,29 +381,7 @@ def _worker_test_all_to_all_multi_node(
     )
 
 @require_multi_node
-# @pytest.mark.parametrize("in_dtype", ["bfloat16", "float8_e4m3fn", "float16"])
-# @pytest.mark.parametrize("out_dtype", ["float16", "bfloat16"])
-@pytest.mark.parametrize("in_dtype", ["bfloat16"])
-@pytest.mark.parametrize("out_dtype", ["float16"])
+@pytest.mark.parametrize("in_dtype", ["bfloat16", "float8_e4m3fn", "float16"])
+@pytest.mark.parametrize("out_dtype", ["float16", "bfloat16"])
 def test_all_to_all_multi_node(in_dtype: str, out_dtype: str) -> None:
-    # parallel_launch_from_env(_worker_test_all_to_all_multi_node, in_dtype, out_dtype)
-    if "MASTER_ADDR" not in os.environ:
-        pytest.skip("Requires multi-node environment")
-
-    if "LOCAL_RANK" not in os.environ or "WORLD_SIZE" not in os.environ:
-        pytest.skip("Must be run with torchrun")
-
-    local_rank = int(os.environ["LOCAL_RANK"])
-    world_size = int(os.environ["WORLD_SIZE"]) 
-
-    pgi = ProcessGroupInfo(
-        world_size=world_size,
-        world_local_size=int(os.environ.get("LOCAL_WORLD_SIZE", world_size)),
-        rank=int(os.environ["RANK"]),
-        node_rank=int(os.environ.get("NODE_RANK", 0)),
-        local_rank=local_rank,
-        device=torch.device("cuda", local_rank),
-    )
-
-    _worker_test_all_to_all_multi_node(pgi, in_dtype, out_dtype)
-
+    parallel_launch_from_env(_worker_test_all_to_all_multi_node, in_dtype, out_dtype)

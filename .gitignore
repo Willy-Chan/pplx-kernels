@@ -10,5 +10,6 @@ dist
 .pytest_cache
 __pycache__
 bench_100.sh
-
+benchmark_summary_statistics.csv
 analyze.py
+SUMMARY_DOC/
