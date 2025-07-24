@@ -58,7 +58,6 @@ add_subdirectory(core)
 add_library(pplx_kernels SHARED
     bindings/all_to_all_ops.cpp
     bindings/bindings.cpp
-    bindings/nvshmem.cpp
 )
 target_link_libraries(pplx_kernels PUBLIC
     all_to_all_internode_lib
