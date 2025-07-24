@@ -18,11 +18,8 @@ def test_nvshmem_1_gpu() -> None:
     local_rank = 0
     world_size = 1
 
-    # Set the device for PyTorch (ensures torch operations target the right GPU)
     torch.cuda.set_device(local_rank)
     device = torch.device("cuda", local_rank)
-
-    # Set the device for custom CUDA code (cuda.core) (ensures NVSHMEM operations target the right GPU)
     dev = Device(local_rank)
     dev.set_current()
 
@@ -31,6 +28,13 @@ def test_nvshmem_1_gpu() -> None:
 
     # Initialize NVSHMEM. No need to broadcast the uid since we're just using 1 GPU.
     nvshmem.init(device=dev, uid=uniqueid, rank=0, nranks=1, initializer_method="uid")
+    # Check host initialization status
+    test_script_init_status = nvshmem.direct.init_status()
+    if test_script_init_status < 2 and local_rank == 0:
+        logger.warning(
+            "NVSHMEM hostlib initialization incomplete - status: %d (rank: %d, local_rank: %d)",
+            test_script_init_status, rank_id, local_rank
+        )
 
     assert nvshmem.my_pe() == 0
     assert nvshmem.n_pes() == 1
@@ -43,7 +47,6 @@ def _worker_test_nvshmem_4_gpu(pgi: ProcessGroupInfo) -> None:
     local_rank = dist.get_rank()
     world_size = dist.get_world_size()
 
-    # Set the device for custom CUDA code (cuda.core) (ensures NVSHMEM operations target the right GPU)
     dev = Device(local_rank)
     dev.set_current()
 
@@ -62,6 +65,14 @@ def _worker_test_nvshmem_4_gpu(pgi: ProcessGroupInfo) -> None:
     # Initialize NVSHMEM with the broadcasted UID
     nvshmem.init(device=dev, uid=broadcast_objects[0], rank=local_rank, nranks=world_size, initializer_method="uid")
 
+    # Check host initialization status
+    test_script_init_status = nvshmem.direct.init_status()
+    if test_script_init_status < 2 and local_rank == 0:
+        logger.warning(
+            "NVSHMEM hostlib initialization incomplete - status: %d (rank: %d, local_rank: %d)",
+            test_script_init_status, rank_id, local_rank
+        )
+
     assert nvshmem.my_pe() == pgi.rank
     assert nvshmem.n_pes() == pgi.world_size
 
@@ -72,15 +83,22 @@ def _worker_test_nvshmem_4_gpu(pgi: ProcessGroupInfo) -> None:
 def test_nvshmem_4_gpu() -> None:
     parallel_launch(4, _worker_test_nvshmem_4_gpu)
 
+class PyTorchStreamWrapper:
+    def __init__(self, pt_stream):
+        self.pt_stream = pt_stream
+        self.handle = pt_stream.cuda_stream
+
+    def __cuda_stream__(self):
+        stream_id = self.pt_stream.cuda_stream
+        return (0, stream_id)  # Return format required by CUDA Python
 
 def _worker_test_all_to_all(pgi: ProcessGroupInfo) -> None:
     local_rank = dist.get_rank()
     world_size = dist.get_world_size()
 
-    # Set the device for custom CUDA code (cuda.core) (ensures NVSHMEM operations target the right GPU)
     dev = Device(local_rank)
     dev.set_current()
-    stream = dev.create_stream()
+    stream = PyTorchStreamWrapper(torch.cuda.current_stream())
     
     num_ranks = dist.get_world_size()
     rank_id = dist.get_rank()
@@ -99,11 +117,18 @@ def _worker_test_all_to_all(pgi: ProcessGroupInfo) -> None:
 
     nvshmem.init(device=dev, uid=broadcast_objects[0], rank=rank_id, nranks=num_ranks, initializer_method="uid")
 
+    # Check host initialization status
+    test_script_init_status = nvshmem.direct.init_status()
+    if test_script_init_status < 2 and local_rank == 0:
+        logger.warning(
+            "NVSHMEM hostlib initialization incomplete - status: %d (rank: %d, local_rank: %d)",
+            test_script_init_status, rank_id, local_rank
+        )
+
     # all-to-all test
     try:
         # Allocate a PyTorch tensor backed by NVSHMEM symmetric memory
-        t_in = nvshmem.tensor( (pgi.world_size,), dtype=torch.int32 )
-        t_in.fill_(pgi.rank)
+        t_in = nvshmem.tensor( (pgi.world_size,), dtype=torch.int32 ).fill_(pgi.rank)
         t_out = nvshmem.tensor( (pgi.world_size,), dtype=torch.int32 )
 
         # Perform the all-to-all operation with TEAM_WORLD and the specified stream
@@ -130,4 +155,4 @@ def test_all_to_all() -> None:
 # TODO: need to make the all-to-all work for multinode environments, investigate parallel_launch_from_env() more.
 @require_multi_node
 def test_all_to_all_multi_node() -> None:
-    parallel_launch_from_env(_worker_test_all_to_all)
+    parallel_launch_from_env(_worker_test_all_to_all) 
