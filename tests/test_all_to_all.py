@@ -17,7 +17,6 @@ from .distributed_utils import (
     require_multi_node,
 )
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -283,6 +282,7 @@ def _do_test_all_to_all(
             ref_y[i_token] += rank_data.x[i_token].to(device).to(y.dtype) * val * weight
     torch.testing.assert_close(y[: rank_data.num_tokens], ref_y)
 
+# TODO: remove this class-wrapper workaround when nvshmem4py supports Torch stream interoperability
 class PyTorchStreamWrapper:
     def __init__(self, pt_stream):
         self.pt_stream = pt_stream
@@ -290,7 +290,7 @@ class PyTorchStreamWrapper:
 
     def __cuda_stream__(self):
         stream_id = self.pt_stream.cuda_stream
-        return (0, stream_id)  # Return format required by CUDA Python
+        return (0, stream_id)
 
 def _worker_test_all_to_all(
     pgi: ProcessGroupInfo,
@@ -304,8 +304,6 @@ def _worker_test_all_to_all(
     num_ranks = dist.get_world_size()
     rank_id = dist.get_rank()
 
-    # Set the device for custom CUDA code (cuda.core) (ensures NVSHMEM operations target the right GPU)
-    # Pytorch Device setting and dist.init_process_group() has already been done in the launcher of this worker function
     dev = Device(rank_id)
     dev.set_current()
 
@@ -330,7 +328,7 @@ def _worker_test_all_to_all(
         out_dtype=getattr(torch, out_dtype),
     )
 
-    test_script_init_status = nvshmem.init_status()
+    test_script_init_status = nvshmem.direct.init_status()
     if test_script_init_status < 2 and local_rank == 0:
         logger.warning(
             "NVSHMEM hostlib initialization incomplete - status: %d (rank: %d, local_rank: %d)",
@@ -350,7 +348,6 @@ def _worker_test_all_to_all(
 def test_all_to_all_4_gpu(
     in_dtype: str, out_dtype: str, internode: bool, use_compile: bool
 ) -> None:
-
     world_size = 4
     dp_size = 2
     parallel_launch(
@@ -384,4 +381,4 @@ def _worker_test_all_to_all_multi_node(
 @pytest.mark.parametrize("in_dtype", ["bfloat16", "float8_e4m3fn", "float16"])
 @pytest.mark.parametrize("out_dtype", ["float16", "bfloat16"])
 def test_all_to_all_multi_node(in_dtype: str, out_dtype: str) -> None:
-    parallel_launch_from_env(_worker_test_all_to_all_multi_node, in_dtype, out_dtype)
+    parallel_launch_from_env(_worker_test_all_to_all_multi_node, in_dtype, out_dtype) 
