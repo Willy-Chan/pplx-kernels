@@ -7,9 +7,9 @@ from datetime import datetime
 from pathlib import Path
 
 import torch
+import torch.distributed as dist
 from cuda.core.experimental import Device
 import nvshmem.core as nvshmem
-import torch.distributed as dist
 from nvshmem.core import Teams
 
 from pplx_kernels.all_to_all import AllToAll
@@ -141,11 +141,12 @@ def bench_all_to_all(
             [torch.cuda.Event(enable_timing=True) for _ in range(5)]
             for _ in range(num_samples)
         ]
+
         torch_stream_wrapped = PyTorchStreamWrapper(torch.cuda.current_stream())
+        torch_stream_ = torch.cuda.current_stream()
 
         for e0, e1, e2, e3, e4 in events:
             team = Teams.TEAM_WORLD
-            torch_stream_ = torch.cuda.current_stream()
             nvshmem.collective.barrier(team, torch_stream_wrapped)
 
             e0.record(torch_stream_)
@@ -254,8 +255,6 @@ def _worker_bench_all_to_all(
 
     dev = Device(rank_id)
     dev.set_current()
-    global stream
-    stream = dev.create_stream()
 
     # Broadcast UID from rank 0 then initialise the nvshmem.core runtime
     uniqueid = nvshmem.get_unique_id(empty=True)
