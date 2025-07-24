@@ -5,9 +5,6 @@ from typing import Any
 
 import torch
 
-import nvshmem.core as nvshmem
-import ctypes
-
 from .ops import _ops
 
 
@@ -17,7 +14,7 @@ class AllToAll:
         ptr: Any,
         combine_fn: Callable,
         dispatch_fn: Callable,
-        has_scales: bool
+        has_scales: bool,
     ) -> None:
         self._ptr = ptr
         self._combine_fn = combine_fn
@@ -117,7 +114,7 @@ class AllToAll:
             hidden_dim,
             hidden_dim_bytes,
             hidden_dim_scale_bytes,
-            group_name
+            group_name,
         )
         assert ptr != 0
 
@@ -155,7 +152,7 @@ class AllToAll:
             dp_size,
             hidden_dim,
             hidden_dim_bytes,
-            hidden_dim_scale_bytes
+            hidden_dim_scale_bytes,
         )
         assert ptr != 0
 
@@ -163,6 +160,5 @@ class AllToAll:
             ptr,
             _ops.all_to_all_internode_combine,
             _ops.all_to_all_internode_dispatch,
-            has_scales
+            has_scales,
         )
-
