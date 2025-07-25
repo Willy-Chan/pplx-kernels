@@ -381,4 +381,4 @@ def _worker_test_all_to_all_multi_node(
 @pytest.mark.parametrize("in_dtype", ["bfloat16", "float8_e4m3fn", "float16"])
 @pytest.mark.parametrize("out_dtype", ["float16", "bfloat16"])
 def test_all_to_all_multi_node(in_dtype: str, out_dtype: str) -> None:
-    parallel_launch_from_env(_worker_test_all_to_all_multi_node, in_dtype, out_dtype) 
+    parallel_launch_from_env(_worker_test_all_to_all_multi_node, in_dtype, out_dtype)
