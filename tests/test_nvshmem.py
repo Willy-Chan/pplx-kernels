@@ -78,6 +78,8 @@ def _worker_test_nvshmem_4_gpu(pgi: ProcessGroupInfo) -> None:
 def test_nvshmem_4_gpu() -> None:
     parallel_launch(4, _worker_test_nvshmem_4_gpu)
 
+# This stream wrapper returns the format required by CUDA Python. This workaround will be removed when nvshmem4py supports Torch stream interoperability.
+# For more information see: https://nvidia.github.io/cuda-python/cuda-core/latest/interoperability.html#cuda-stream-protocol
 class PyTorchStreamWrapper:
     def __init__(self, pt_stream):
         self.pt_stream = pt_stream
@@ -85,7 +87,7 @@ class PyTorchStreamWrapper:
 
     def __cuda_stream__(self):
         stream_id = self.pt_stream.cuda_stream
-        return (0, stream_id)  # Return format required by CUDA Python
+        return (0, stream_id)
 
 def _worker_test_all_to_all(pgi: ProcessGroupInfo) -> None:
     local_rank = dist.get_rank()

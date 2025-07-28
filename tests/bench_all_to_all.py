@@ -23,6 +23,7 @@ from .distributed_utils import (
 
 logger = logging.getLogger(__name__)
 
+
 @torch.inference_mode()
 def bench_all_to_all(
     pgi: ProcessGroupInfo,
@@ -232,7 +233,8 @@ def bench_all_to_all(
         result,
     )
 
-
+# This stream wrapper returns the format required by CUDA Python. This workaround will be removed when nvshmem4py supports Torch stream interoperability.
+# For more information see: https://nvidia.github.io/cuda-python/cuda-core/latest/interoperability.html#cuda-stream-protocol
 class PyTorchStreamWrapper:
     def __init__(self, pt_stream):
         self.pt_stream = pt_stream
@@ -240,8 +242,7 @@ class PyTorchStreamWrapper:
 
     def __cuda_stream__(self):
         stream_id = self.pt_stream.cuda_stream
-        return (0, stream_id)  # Return format required by CUDA Python
-
+        return (0, stream_id)
 
 def _worker_bench_all_to_all(
     pgi: ProcessGroupInfo,

@@ -282,7 +282,8 @@ def _do_test_all_to_all(
             ref_y[i_token] += rank_data.x[i_token].to(device).to(y.dtype) * val * weight
     torch.testing.assert_close(y[: rank_data.num_tokens], ref_y)
 
-# TODO: remove this class-wrapper workaround when nvshmem4py supports Torch stream interoperability
+# This stream wrapper returns the format required by CUDA Python. This workaround will be removed when nvshmem4py supports Torch stream interoperability.
+# For more information see: https://nvidia.github.io/cuda-python/cuda-core/latest/interoperability.html#cuda-stream-protocol
 class PyTorchStreamWrapper:
     def __init__(self, pt_stream):
         self.pt_stream = pt_stream
