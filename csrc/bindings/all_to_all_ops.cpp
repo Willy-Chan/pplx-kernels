@@ -62,7 +62,6 @@ fptr_t create_internode(
     int64_t hiddenDimBytes,
     int64_t hiddenDimScaleBytes
 ) {
-
   auto *ptr = new AllToAllInterNode(
       maxNumTokens,
       numExperts,
