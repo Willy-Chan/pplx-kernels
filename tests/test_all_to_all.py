@@ -303,15 +303,17 @@ def _worker_test_all_to_all(
     use_compile: bool = False,
 ) -> None:
     num_ranks = dist.get_world_size()
-    rank_id = dist.get_rank()
 
-    dev = Device(rank_id)
+    global_rank = pgi.rank
+    local_rank = pgi.local_rank
+
+    dev = Device(local_rank)
     dev.set_current()
 
     stream = PyTorchStreamWrapper(torch.cuda.current_stream())
 
     uniqueid = nvshmem.get_unique_id(empty=True)
-    if rank_id == 0:
+    if global_rank == 0:
         uniqueid = nvshmem.get_unique_id()
         broadcast_objects = [uniqueid]
     else:
@@ -321,7 +323,7 @@ def _worker_test_all_to_all(
     dist.broadcast_object_list(broadcast_objects, src=0)
     dist.barrier()
 
-    nvshmem.init(device=dev, uid=broadcast_objects[0], rank=rank_id, nranks=num_ranks, initializer_method="uid")
+    nvshmem.init(device=dev, uid=broadcast_objects[0], rank=global_rank, nranks=num_ranks, initializer_method="uid")
 
     moe_config = dataclasses.replace(
         moe_config,
@@ -333,7 +335,7 @@ def _worker_test_all_to_all(
     if test_script_init_status < 2 and local_rank == 0:
         logger.warning(
             "NVSHMEM hostlib initialization incomplete - status: %d (rank: %d, local_rank: %d)",
-            test_script_init_status, rank_id, local_rank
+            test_script_init_status, global_rank, local_rank
         )
 
 

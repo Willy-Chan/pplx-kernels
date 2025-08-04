@@ -251,15 +251,16 @@ def _worker_bench_all_to_all(
     out_dtype_str: str,
 ) -> None:
     # Torch CUDA device and dist.init_process_group() already configured.
-    num_ranks = dist.get_world_size()
-    rank_id = dist.get_rank()
+    num_ranks = pgi.world_size
+    global_rank = pgi.rank
+    local_rank = pgi.local_rank
 
-    dev = Device(rank_id)
+    dev = Device(local_rank)
     dev.set_current()
 
     # Broadcast UID from rank 0 then initialise the nvshmem.core runtime
     uniqueid = nvshmem.get_unique_id(empty=True)
-    if rank_id == 0:
+    if global_rank == 0:
         uniqueid = nvshmem.get_unique_id()
         broadcast_objects = [uniqueid]
     else:
@@ -268,7 +269,7 @@ def _worker_bench_all_to_all(
     dist.broadcast_object_list(broadcast_objects, src=0)
     dist.barrier()
 
-    nvshmem.init(device=dev, uid=broadcast_objects[0], rank=rank_id, nranks=num_ranks, initializer_method="uid")
+    nvshmem.init(device=dev, uid=broadcast_objects[0], rank=global_rank, nranks=num_ranks, initializer_method="uid")
 
     in_dtype = getattr(torch, in_dtype_str)
     out_dtype = getattr(torch, out_dtype_str)
