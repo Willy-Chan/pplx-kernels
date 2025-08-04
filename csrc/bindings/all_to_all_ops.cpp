@@ -74,7 +74,7 @@ fptr_t create_internode(
       hiddenDimScaleBytes
   );
 
-  // Needed to avoid CUDA illegal memory access
+  // Needed to use host-side initialization information in device APIs. 
   nvshmem_init();
 
   return (fptr_t)ptr;
