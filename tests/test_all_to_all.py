@@ -1,6 +1,5 @@
 import dataclasses
 import logging
-import os
 
 import pytest
 import torch
