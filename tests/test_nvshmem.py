@@ -1,5 +1,13 @@
+import logging
+
+import nvshmem.core as nvshmem  # type: ignore[import]
 import pytest
 import torch
+import torch.distributed as dist
+from cuda.core.experimental import Device  # type: ignore[import]
+from nvshmem.core import Teams  # type: ignore[import]
+
+from pplx_kernels import nvshmem_init
 
 from .distributed_utils import (
     ProcessGroupInfo,
@@ -8,19 +16,14 @@ from .distributed_utils import (
     require_multi_node,
 )
 
-from cuda.core.experimental import Device
-import nvshmem.core as nvshmem
-import torch.distributed as dist
-from nvshmem.core import Teams
-from pplx_kernels import nvshmem_init, PyTorchStreamWrapper
+logger = logging.getLogger(__name__)
 
 def test_nvshmem_1_gpu() -> None:
 
     local_rank = 0
-    world_size = 1
+    rank_id = 0  # Define rank_id for single GPU test
 
     torch.cuda.set_device(local_rank)
-    device = torch.device("cuda", local_rank)
     dev = Device(local_rank)
     dev.set_current()
 
@@ -39,17 +42,15 @@ def test_nvshmem_1_gpu() -> None:
     assert nvshmem.n_pes() == 1
 
     nvshmem.finalize()
-    
 
 
 def _worker_test_nvshmem_4_gpu(pgi: ProcessGroupInfo) -> None:
     local_rank = dist.get_rank()
-    world_size = dist.get_world_size()
 
     dev = Device(local_rank)
     dev.set_current()
 
-    nvshmem_init(global_rank=pgi.rank, local_rank=local_rank, world_size=world_size, device=dev)
+    nvshmem_init(global_rank=pgi.rank, local_rank=local_rank, world_size=pgi.world_size, device=dev)
 
     # Check host initialization status
     test_script_init_status = nvshmem.direct.init_status()
@@ -72,12 +73,10 @@ def test_nvshmem_4_gpu() -> None:
 
 def _worker_test_all_to_all(pgi: ProcessGroupInfo) -> None:
     local_rank = dist.get_rank()
-    world_size = dist.get_world_size()
 
     dev = Device(local_rank)
     dev.set_current()
-    stream = PyTorchStreamWrapper(torch.cuda.current_stream())
-    
+
     num_ranks = dist.get_world_size()
     rank_id = dist.get_rank()
 
@@ -98,9 +97,9 @@ def _worker_test_all_to_all(pgi: ProcessGroupInfo) -> None:
         t_out = nvshmem.tensor( (pgi.world_size,), dtype=torch.int32 )
 
         team = Teams.TEAM_WORLD
-        nvshmem.collective.alltoall(team, t_out, t_in, stream=stream)
+        nvshmem.collective.alltoall(team, t_out, t_in)
 
-        nvshmem.collective.barrier(team, stream=stream)
+        nvshmem.collective.barrier(team)
         torch.cuda.synchronize()
 
         assert t_out.tolist() == list(range(pgi.world_size))

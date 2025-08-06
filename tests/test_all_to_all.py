@@ -1,13 +1,14 @@
 import dataclasses
 import logging
 
+import nvshmem.core as nvshmem  # type: ignore[import]
 import pytest
 import torch
 import torch.distributed as dist
-from cuda.core.experimental import Device
-import nvshmem.core as nvshmem
+from cuda.core.experimental import Device  # type: ignore[import]
+
+from pplx_kernels import nvshmem_init
 from pplx_kernels.all_to_all import AllToAll
-from pplx_kernels import nvshmem_init, PyTorchStreamWrapper
 
 from .all_to_all_utils import MoEConfig, RankTestData
 from .distributed_utils import (
@@ -299,7 +300,7 @@ def _worker_test_all_to_all(
     dev = Device(local_rank)
     dev.set_current()
 
-    stream = PyTorchStreamWrapper(torch.cuda.current_stream())
+
 
     nvshmem_init(global_rank=global_rank, local_rank=local_rank, world_size=num_ranks, device=dev)
 
@@ -316,7 +317,7 @@ def _worker_test_all_to_all(
             test_script_init_status, global_rank, local_rank
         )
 
-    _do_test_all_to_all(pgi, dp_size, moe_config, internode, stream)
+    _do_test_all_to_all(pgi, dp_size, moe_config, internode, use_compile)
 
     nvshmem.finalize()
 

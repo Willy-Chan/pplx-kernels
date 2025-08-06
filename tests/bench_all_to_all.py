@@ -6,14 +6,13 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+import nvshmem.core as nvshmem  # type: ignore[import]
 import torch
-import torch.distributed as dist
-from cuda.core.experimental import Device
-import nvshmem.core as nvshmem
-from nvshmem.core import Teams
+from cuda.core.experimental import Device  # type: ignore[import]
+from nvshmem.core import Teams  # type: ignore[import]
 
+from pplx_kernels import PyTorchStreamWrapper, nvshmem_init
 from pplx_kernels.all_to_all import AllToAll
-from pplx_kernels import nvshmem_init, PyTorchStreamWrapper
 
 from .all_to_all_utils import MoEConfig, RankTestData
 from .distributed_utils import (
@@ -225,7 +224,7 @@ def bench_all_to_all(
 
     # Cleanup
     ata.destroy()
-    
+
     nvshmem.free_tensor(nvshmem_in)
     nvshmem.free_tensor(nvshmem_out)
 
