@@ -5,8 +5,8 @@
 
 using namespace pplx;
 
-TORCH_LIBRARY(pplx_kernels, m) {
-  register_all_to_all_ops(m);
+TORCH_LIBRARY(pplx_kernels, m) { 
+  register_all_to_all_ops(m); 
 }
 
 REGISTER_EXTENSION(TORCH_EXTENSION_NAME)
