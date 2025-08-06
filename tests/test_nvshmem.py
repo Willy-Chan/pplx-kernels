@@ -12,6 +12,7 @@ from cuda.core.experimental import Device
 import nvshmem.core as nvshmem
 import torch.distributed as dist
 from nvshmem.core import Teams
+from pplx_kernels import nvshmem_init, PyTorchStreamWrapper
 
 def test_nvshmem_1_gpu() -> None:
 
@@ -48,24 +49,14 @@ def _worker_test_nvshmem_4_gpu(pgi: ProcessGroupInfo) -> None:
     dev = Device(local_rank)
     dev.set_current()
 
-    uniqueid = nvshmem.get_unique_id(empty=True)
-    if local_rank == 0:
-        uniqueid = nvshmem.get_unique_id()
-        broadcast_objects = [uniqueid]
-    else:
-        broadcast_objects = [None]
-
-    dist.broadcast_object_list(broadcast_objects, src=0)
-    dist.barrier()
-
-    nvshmem.init(device=dev, uid=broadcast_objects[0], rank=local_rank, nranks=world_size, initializer_method="uid")
+    nvshmem_init(global_rank=pgi.rank, local_rank=local_rank, world_size=world_size, device=dev)
 
     # Check host initialization status
     test_script_init_status = nvshmem.direct.init_status()
     if test_script_init_status < 2 and local_rank == 0:
         logger.warning(
             "NVSHMEM hostlib initialization incomplete - status: %d (rank: %d, local_rank: %d)",
-            test_script_init_status, rank_id, local_rank
+            test_script_init_status, pgi.rank, local_rank
         )
 
     assert nvshmem.my_pe() == pgi.rank
@@ -78,16 +69,6 @@ def _worker_test_nvshmem_4_gpu(pgi: ProcessGroupInfo) -> None:
 def test_nvshmem_4_gpu() -> None:
     parallel_launch(4, _worker_test_nvshmem_4_gpu)
 
-# This stream wrapper returns the format required by CUDA Python. This workaround will be removed when nvshmem4py supports Torch stream interoperability.
-# For more information see: https://nvidia.github.io/cuda-python/cuda-core/latest/interoperability.html#cuda-stream-protocol
-class PyTorchStreamWrapper:
-    def __init__(self, pt_stream):
-        self.pt_stream = pt_stream
-        self.handle = pt_stream.cuda_stream
-
-    def __cuda_stream__(self):
-        stream_id = self.pt_stream.cuda_stream
-        return (0, stream_id)
 
 def _worker_test_all_to_all(pgi: ProcessGroupInfo) -> None:
     local_rank = dist.get_rank()
@@ -100,17 +81,7 @@ def _worker_test_all_to_all(pgi: ProcessGroupInfo) -> None:
     num_ranks = dist.get_world_size()
     rank_id = dist.get_rank()
 
-    uniqueid = nvshmem.get_unique_id(empty=True)
-    if rank_id == 0:
-        uniqueid = nvshmem.get_unique_id()
-        broadcast_objects = [uniqueid]
-    else:
-        broadcast_objects = [None]
-
-    dist.broadcast_object_list(broadcast_objects, src=0)
-    dist.barrier()
-
-    nvshmem.init(device=dev, uid=broadcast_objects[0], rank=rank_id, nranks=num_ranks, initializer_method="uid")
+    nvshmem_init(global_rank=rank_id, local_rank=local_rank, world_size=num_ranks, device=dev)
 
     # Check NVSHMEM host initialization status
     test_script_init_status = nvshmem.direct.init_status()

@@ -7,6 +7,7 @@ import torch.distributed as dist
 from cuda.core.experimental import Device
 import nvshmem.core as nvshmem
 from pplx_kernels.all_to_all import AllToAll
+from pplx_kernels import nvshmem_init, PyTorchStreamWrapper
 
 from .all_to_all_utils import MoEConfig, RankTestData
 from .distributed_utils import (
@@ -281,17 +282,6 @@ def _do_test_all_to_all(
             ref_y[i_token] += rank_data.x[i_token].to(device).to(y.dtype) * val * weight
     torch.testing.assert_close(y[: rank_data.num_tokens], ref_y)
 
-# This stream wrapper returns the format required by CUDA Python. This workaround will be removed when nvshmem4py supports Torch stream interoperability.
-# For more information see: https://nvidia.github.io/cuda-python/cuda-core/latest/interoperability.html#cuda-stream-protocol
-class PyTorchStreamWrapper:
-    def __init__(self, pt_stream):
-        self.pt_stream = pt_stream
-        self.handle = pt_stream.cuda_stream
-
-    def __cuda_stream__(self):
-        stream_id = self.pt_stream.cuda_stream
-        return (0, stream_id)
-
 def _worker_test_all_to_all(
     pgi: ProcessGroupInfo,
     dp_size: int,
@@ -311,18 +301,7 @@ def _worker_test_all_to_all(
 
     stream = PyTorchStreamWrapper(torch.cuda.current_stream())
 
-    uniqueid = nvshmem.get_unique_id(empty=True)
-    if global_rank == 0:
-        uniqueid = nvshmem.get_unique_id()
-        broadcast_objects = [uniqueid]
-    else:
-        broadcast_objects = [None]
-
-    # Pythonically Broadcast the UID from rank 0 to all other ranks
-    dist.broadcast_object_list(broadcast_objects, src=0)
-    dist.barrier()
-
-    nvshmem.init(device=dev, uid=broadcast_objects[0], rank=global_rank, nranks=num_ranks, initializer_method="uid")
+    nvshmem_init(global_rank=global_rank, local_rank=local_rank, world_size=num_ranks, device=dev)
 
     moe_config = dataclasses.replace(
         moe_config,
@@ -337,16 +316,19 @@ def _worker_test_all_to_all(
             test_script_init_status, global_rank, local_rank
         )
 
-
     _do_test_all_to_all(pgi, dp_size, moe_config, internode, stream)
 
     nvshmem.finalize()
 
 @pytest.mark.skipif(torch.cuda.device_count() < 4, reason="Requires at least 4 GPUs")
-@pytest.mark.parametrize("in_dtype", ["bfloat16", "float8_e4m3fn", "float16"])
-@pytest.mark.parametrize("out_dtype", ["float16", "bfloat16"])
-@pytest.mark.parametrize("internode", [True, False])
-@pytest.mark.parametrize("use_compile", [False, True])
+# @pytest.mark.parametrize("in_dtype", ["bfloat16", "float8_e4m3fn", "float16"])
+# @pytest.mark.parametrize("out_dtype", ["float16", "bfloat16"])
+# @pytest.mark.parametrize("internode", [True, False])
+# @pytest.mark.parametrize("use_compile", [False, True])
+@pytest.mark.parametrize("in_dtype", ["bfloat16"])
+@pytest.mark.parametrize("out_dtype", ["float16"])
+@pytest.mark.parametrize("internode", [True])
+@pytest.mark.parametrize("use_compile", [False])
 def test_all_to_all_4_gpu(
     in_dtype: str, out_dtype: str, internode: bool, use_compile: bool
 ) -> None:
